@@ -87,7 +87,8 @@ scripts/edge-smoke.sh --cloud <project-ref>  # сквозная проверка
 supabase/
   migrations/                   0001 схема, 0002 views, 0003 RLS, 0004 базовые RPC,
                                 0005 брони и платежи, 0006 поездка и споры, 0007 scheduler,
-                                0008 чат/отзывы/выплаты/верификация, 0009 поддержка Edge
+                                0008 чат/отзывы/выплаты/верификация, 0009 поддержка Edge,
+                                0010-0011 запросы web к контракту, 0012 админка
   seed.sql                      места, маршруты, тестовые пользователи, поездки
   tests/                        pgTAP, один файл на миграцию
   functions/                    Edge Functions: payments-*, notify, send-sms, payments-mock; _shared/

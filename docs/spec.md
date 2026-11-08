@@ -124,6 +124,8 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | status | enum `profile_status` | `active`, `restricted`, `suspended`, `banned`, `deleted` (после `delete_me`: профиль обезличен, в публичных views не показывается, RPC недоступны) |
 | locale | text default 'pt-AO' | — |
 | last\_seen\_at | timestamptz | — |
+| terms\_accepted\_at, adult\_confirmed\_at | timestamptz | согласие с правилами и 18+ при регистрации (раздел 15); ставятся через `upsert_profile` один раз |
+| suspended\_until | timestamptz | срок `suspended`; cron возвращает `active` |
 
 ### driver\_verifications
 
@@ -398,9 +400,11 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | id | uuid PK | — |
 | admin\_id | uuid FK profiles | — |
 | target\_user\_id | uuid FK profiles | — |
-| action | enum `mod_action` | `warn`, `restrict`, `suspend`, `ban`, `unban`, `verify_id`, `resolve_dispute` (решение по спору: `reason` = outcome и сумма, target = пассажир) |
+| action | enum `mod_action` | `warn`, `restrict`, `suspend`, `ban`, `unban`, `verify_id`, `resolve_dispute` (решение по спору: `reason` = outcome и сумма, target = пассажир), `hide_trip`, `cancel_booking`, `manual_refund`, `report_dismissed` |
 | reason | text | — |
 | report\_id | uuid, nullable | — |
+| until | timestamptz | срок для `suspend` |
+| payload | jsonb | детали: id поездки/брони/платежа, суммы возвратов |
 
 ### banned\_phones
 
@@ -499,11 +503,11 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Функция | Кто вызывает | Что делает |
 | --- | --- | --- |
 | `search_trips(origin, destination, date, seats, cursor)` | все, включая анонимов | поиск по `trips_public`, ±1 день; сортировка: сначала по времени, при равном — verified выше; пишет `events.search` |
-| `upsert_profile(payload)` | владелец | имя, bio, год рождения, chat\_level, payout\_method; телефон не меняется здесь |
+| `upsert_profile(payload)` | владелец | имя, bio, год рождения, chat\_level, payout\_method, `terms_accepted` / `adult_confirmed` (один раз); телефон не меняется здесь |
 | `upsert_vehicle(payload)` | владелец | макс. 3 активные машины; смена номера сбрасывает `verified` |
 | `submit_verification(vehicle_id, doc_urls)` | владелец | `doc_urls` — четыре пути в бакете `verifications/<uid>/` (`VERIFICATION_INCOMPLETE`); одна `pending` (`VERIFICATION_PENDING`); после `rejected` не раньше чем через 24 ч (`RATE_LIMITED`); `driver_status → pending`, если был `none`/`rejected` (verified водитель с новой машиной остаётся verified); админам `verification_submitted` |
 | `review_verification(id, approve, reason)` | admin | approve → `driver_status = verified`, `vehicles.verified = true`, `moderation_actions(verify_id)`; reject → `reason` обязателен (`REASON_REQUIRED`), `driver_status = rejected`, если не verified по другой машине; уведомление с причиной |
-| `publish_trip(payload)` | любой водитель с машиной и `payout_method` | валидация; `booking_mode` (instant по умолчанию); не больше 5 активных поездок; запрет дубля ±2 ч; подсказка цены из `route_durations` |
+| `publish_trip(payload)` | любой водитель с машиной и `payout_method` | валидация; `origin`/`destination` только `city`/`town` (landmark — в `origin_detail`), иначе `PLACE_INVALID`; `booking_mode` (instant по умолчанию); не больше 5 активных поездок; запрет дубля ±2 ч; подсказка цены из `route_durations` |
 | `create_return_trip(trip_id, departure_at) → uuid` | водитель | копия поездки с перестановкой городов и точек, та же машина, цена, места, режим брони, багаж, флаги, заметки; внутри вызывает `publish_trip`, поэтому все его проверки и ошибки те же |
 | `update_trip(trip_id, payload)` | водитель | цена/места/заметки/багаж/флаги/детали точек — только пока нет оплаченных броней (`TRIP_HAS_BOOKINGS`); время — пока нет ни одной брони, включая `pending_payment`, сбрасывает `driver_confirmed_at`; `booking_mode` — в любой момент, действует на новые брони; любой другой ключ (`vehicle_id`, города) → `TRIP_FIELD_LOCKED`; поездка не в `published`/`full` → `TRIP_CLOSED` |
 | `confirm_trip_intent(trip_id)` | водитель | ответ на напоминание −24 ч: ставит `driver_confirmed_at` (повторный вызов не ошибка); без него к −6 ч пассажирам открывается бесплатная отмена; поездка не в `published`/`full` → `TRIP_CLOSED` |
@@ -527,6 +531,14 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `report_user(target_id, reason, details, trip_id?, booking_id?, message_id?)` | любой | не на себя (`TARGET_INVALID`); ≤ 10 жалоб в сутки; `reports(open)`; админам in-app `report_opened` |
 | `register_device(platform, token, app_version)` | клиент | upsert по токену |
 | `mark_notifications_read(ids[])` | владелец | — |
+| `admin_search_users(q, lim)` | admin | поиск по телефону (цифры), имени или id; карточка пользователя одним вызовом |
+| `admin_moderate(target_id, action, reason, days?, report_id?)` | admin | `warn` / `restrict` / `suspend` на `days` / `ban` (телефон в `banned_phones`, вход закрыт, поездки водителя отменяются платформой с возвратом 100 %, брони пассажира отменяются с возвратом ему) / `unban`; пишет `moderation_actions`, цели `moderation_action`; с `report_id` жалоба → `actioned` |
+| `admin_resolve_report(report_id, outcome, note?)` | admin | `reviewed` (в работе) или `dismissed` |
+| `admin_cancel_trip(trip_id, reason)` | admin | скрыть поездку: отмена платформой, возвраты 100 %, без `cancels_total` водителю |
+| `admin_cancel_booking(booking_id, reason)` | admin | отмена одной брони платформой, возврат 100 %, счётчики сторон не меняются |
+| `admin_mark_refund_manual(payment_id, ref, note?)` | admin | возврат сделан вручную переводом: закрывает строку очереди `refund_manual` |
+| `admin_upsert_place(payload)`, `admin_merge_places(from_id, into_id)` | admin | справочник мест: добавить, переименовать, деактивировать, объединить дубли (поездки и `route_durations` переводятся, алиасы объединяются) |
+| `admin_stats()`, `admin_weekly(weeks)` | admin | очереди, сегодня / 7 дней, здоровье; воронка и деньги по неделям, топ маршрутов |
 | `delete_me()` | владелец | запрещено при активных бронях или активных поездках водителя (`HAS_ACTIVE_BOOKINGS`), при `balance_kz ≠ 0` или заявке на выплату в работе (`BALANCE_NOT_ZERO`); обезличивает профиль (`status = deleted`, имя «Utilizador removido», телефон и метод выплаты null), снимает машины, закрывает чаты, удаляет устройства, в `auth.users` обнуляет телефон и ставит `banned_until = infinity`; поездки, брони, отзывы, ledger остаются |
 
 **Триггеры**
@@ -590,8 +602,9 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Что | Откуда | Кому |
 | --- | --- | --- |
 | Список/детали поездки | `trips_public` | все |
+| Маршруты для SEO | `route_stats`: все пары из `route_durations` плюс пары с поездками | все |
 | Профиль водителя публичный | `profiles_public` (без телефона, без `is_admin`, без баланса) | все |
-| Отзывы о пользователе | `reviews` where `is_visible` | все |
+| Отзывы о пользователе | `reviews_public` (видимые, с именем и аватаром автора) | все |
 | Мои поездки как водителя | `trips` where `driver_id = uid` + вложенные `bookings` (без телефона пассажира) | владелец |
 | Мои брони | `my_bookings` — с `payments.status` и `conversation_id`; view фильтрует по `auth.uid()` сама (пассажир или водитель поездки), без `security_invoker`: RLS `trips`/`profiles` не отдала бы пассажиру строки водителя | владелец |
 | Мои чаты и сообщения | `my_conversations` (фильтр по `auth.uid()` внутри view; `unread_count` считает и системные сообщения), `messages` by `conversation_id` | участники |
@@ -616,7 +629,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 - Имена полей `snake_case`; `*_at` — всегда `timestamptz` в ISO 8601 с `Z`; деньги — целые кванзы в полях `*_kz`.
 - Пагинация — keyset по `(departure_at, id)` для поездок и по `id` для сообщений, параметр `cursor`; никакого `offset`.
-- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`, `NOT_ADMIN`, `TRIP_CLOSED`, `TRIP_HAS_BOOKINGS`, `TRIP_FIELD_LOCKED`, `NO_SHOW_WINDOW_CLOSED`, `NO_SHOW_NEEDS_PIN`, `DISPUTE_OUTCOME_INVALID`, `DISPUTE_AMOUNT_INVALID`, `MESSAGE_EMPTY`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `REVIEW_WINDOW_CLOSED`, `REVIEW_DUPLICATE`, `RATING_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `AMOUNT_INVALID`, `PAYOUT_PENDING`, `PAYOUT_CLOSED`, `PAYOUT_STATUS_INVALID`, `PAYOUT_NOT_FOUND`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`, `VERIFICATION_CLOSED`, `REASON_REQUIRED`, `HAS_ACTIVE_BOOKINGS`, `BALANCE_NOT_ZERO`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
+- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`, `NOT_ADMIN`, `TRIP_CLOSED`, `TRIP_HAS_BOOKINGS`, `TRIP_FIELD_LOCKED`, `NO_SHOW_WINDOW_CLOSED`, `NO_SHOW_NEEDS_PIN`, `DISPUTE_OUTCOME_INVALID`, `DISPUTE_AMOUNT_INVALID`, `MESSAGE_EMPTY`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `REVIEW_WINDOW_CLOSED`, `REVIEW_DUPLICATE`, `RATING_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `AMOUNT_INVALID`, `PAYOUT_PENDING`, `PAYOUT_CLOSED`, `PAYOUT_STATUS_INVALID`, `PAYOUT_NOT_FOUND`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`, `VERIFICATION_CLOSED`, `REASON_REQUIRED`, `HAS_ACTIVE_BOOKINGS`, `BALANCE_NOT_ZERO`, `TARGET_IS_ADMIN`, `DAYS_REQUIRED`, `MODERATION_ACTION_INVALID`, `REPORT_NOT_FOUND`, `REPORT_CLOSED`, `REPORT_OUTCOME_INVALID`, `PLACE_NOT_FOUND`, `PLACE_SLUG_TAKEN`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
 - Телефон во всех ответах — только через `reveal_contact`, в формате E.164; кнопка «Позвонить» — `tel:`, никаких `wa.me`.
 - Версионирование — views не ломаются: новые поля добавляются, старые не удаляются и не переименовываются минимум 2 релиза Flutter (магазины обновляют пользователей медленно).
 
@@ -702,7 +715,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `payout_paid` / `payout_failed` | водитель | push / SMS | — |
 | `verification_approved` / `verification_rejected` | водитель | push / SMS | с причиной при отказе |
 | `review_request` | обе стороны | push / in-app | через 24 ч после `completed` |
-| `moderation_action` | цель | push + in-app | предупреждение / ограничение / бан с причиной |
+| `moderation_action` | цель | push + in-app | `action` ∈ warn / restrict / suspend / ban / unban / unsuspend, `reason`, `until` |
 
 **Deep links**: `boleia://trip/<id>`, `boleia://booking/<id>` для Flutter; web — `https://boleia.ao/t/<id>` с universal links / app links на те же пути. Все уведомления ведут на экран, где можно сразу сделать действие.
 
@@ -769,9 +782,10 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 **Админка на Nuxt (`/admin`, доступ по `role = admin`)**
 
-- Поиск пользователя по телефону/имени: профиль, верификация с документами, поездки, брони, платежи, ledger, чаты (только по открытой жалобе или спору), отзывы, действия модераторов.
-- Действия: предупредить, ограничить, приостановить на N дней, забанить, снять бан, одобрить/отклонить верификацию, разрешить спор, отметить выплату, редактировать/скрыть поездку, ручной возврат.
-- Справочник `places`: добавить, переименовать, деактивировать, объединить дубли.
+- Поиск пользователя по телефону/имени (`admin_search_users`): профиль, верификация с документами, поездки, брони, платежи, ledger, чаты (только по открытой жалобе или спору — функция `admin_can_see_conversation` в RLS `conversations`/`messages`), отзывы, действия модераторов.
+- Действия (`admin_moderate`): предупредить, ограничить, приостановить на N дней (снимается cron'ом по сроку), забанить (поездки водителя и брони пассажира отменяются платформой с полным возвратом), снять бан; одобрить/отклонить верификацию; разрешить спор; отметить выплату; скрыть поездку (`admin_cancel_trip`) и отменить бронь (`admin_cancel_booking`) платформой; ручной возврат (`admin_mark_refund_manual`). Редактирование поездки за водителя — не в MVP: водитель правит сам через `update_trip`.
+- Справочник `places`: добавить, переименовать, деактивировать (`admin_upsert_place`), объединить дубли (`admin_merge_places`).
+- Дашборд: `admin_stats()` — очереди, сегодня / 7 дней, здоровье cron и уведомлений; `admin_weekly(weeks)` — воронка, GMV, выручка, возвраты, отмены по сторонам, время ответа водителя и верификации, топ-10 маршрутов по неделям.
 - Деньги: баланс по счетам ledger, очередь выплат и возвратов, выгрузка CSV за период.
 - Дашборд недели: поездки опубликованы / с оплаченной бронью / завершены; запросы → оплачены → приняты (конверсия); GMV, выручка (`platform_fee`), возвраты; отмены по сторонам; среднее время ответа водителя; среднее время верификации; топ-10 маршрутов.
 

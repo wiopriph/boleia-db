@@ -187,9 +187,9 @@ isOneToOne: false
                   ]
                 },"conversations": {
                   Row: {
-                    "booking_id": string | null,"closed_at": string | null,"created_at": string,"driver_id": string,"driver_seen_at": string | null,"id": string,"last_message_at": string | null,"passenger_id": string,"passenger_seen_at": string | null,"trip_id": string,"updated_at": string,"conversation_paid": boolean | null
+                    "booking_id": string | null,"closed_at": string | null,"created_at": string,"driver_id": string,"driver_seen_at": string | null,"id": string,"last_message_at": string | null,"passenger_id": string,"passenger_seen_at": string | null,"trip_id": string,"updated_at": string,"admin_can_see_conversation": boolean | null,"conversation_paid": boolean | null
                   }
-                  ComputedFields: "conversation_paid"
+                  ComputedFields: "admin_can_see_conversation" | "conversation_paid"
                   Insert: {
                     "booking_id"?: string | null,"closed_at"?: string | null,"created_at"?: string,"driver_id": string,"driver_seen_at"?: string | null,"id"?: string,"last_message_at"?: string | null,"passenger_id": string,"passenger_seen_at"?: string | null,"trip_id": string,"updated_at"?: string
                   }
@@ -505,14 +505,14 @@ isOneToOne: false
                   ]
                 },"moderation_actions": {
                   Row: {
-                    "action": Database["public"]['Enums']["mod_action"],"admin_id": string,"created_at": string,"id": string,"reason": string | null,"report_id": string | null,"target_user_id": string
+                    "action": Database["public"]['Enums']["mod_action"],"admin_id": string,"created_at": string,"id": string,"payload": NonNullable<Json>,"reason": string | null,"report_id": string | null,"target_user_id": string,"until": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "action": Database["public"]['Enums']["mod_action"],"admin_id": string,"created_at"?: string,"id"?: string,"reason"?: string | null,"report_id"?: string | null,"target_user_id": string
+                    "action": Database["public"]['Enums']["mod_action"],"admin_id": string,"created_at"?: string,"id"?: string,"payload"?: NonNullable<Json>,"reason"?: string | null,"report_id"?: string | null,"target_user_id": string,"until"?: string | null
                   }
                   Update: {
-                    "action"?: Database["public"]['Enums']["mod_action"],"admin_id"?: string,"created_at"?: string,"id"?: string,"reason"?: string | null,"report_id"?: string | null,"target_user_id"?: string
+                    "action"?: Database["public"]['Enums']["mod_action"],"admin_id"?: string,"created_at"?: string,"id"?: string,"payload"?: NonNullable<Json>,"reason"?: string | null,"report_id"?: string | null,"target_user_id"?: string,"until"?: string | null
                   }
                   Relationships: [
                     {
@@ -737,14 +737,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "adult_confirmed_at": string | null,"avatar_url": string | null,"balance_kz": number,"bio": string | null,"birth_year": number | null,"cancels_total": number,"chat_level": Database["public"]['Enums']["chat_level"],"created_at": string,"display_name": string,"driver_status": Database["public"]['Enums']["driver_status"],"driver_verified_at": string | null,"id": string,"is_admin": boolean,"last_seen_at": string | null,"locale": string,"no_shows": number,"payout_method": Json | null,"phone": string | null,"phone_verified_at": string | null,"rating_avg": number,"rating_count": number,"status": Database["public"]['Enums']["profile_status"],"terms_accepted_at": string | null,"trips_driven": number,"trips_ridden": number,"updated_at": string
+                    "adult_confirmed_at": string | null,"avatar_url": string | null,"balance_kz": number,"bio": string | null,"birth_year": number | null,"cancels_total": number,"chat_level": Database["public"]['Enums']["chat_level"],"created_at": string,"display_name": string,"driver_status": Database["public"]['Enums']["driver_status"],"driver_verified_at": string | null,"id": string,"is_admin": boolean,"last_seen_at": string | null,"locale": string,"no_shows": number,"payout_method": Json | null,"phone": string | null,"phone_verified_at": string | null,"rating_avg": number,"rating_count": number,"status": Database["public"]['Enums']["profile_status"],"suspended_until": string | null,"terms_accepted_at": string | null,"trips_driven": number,"trips_ridden": number,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "adult_confirmed_at"?: string | null,"avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id": string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"terms_accepted_at"?: string | null,"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
+                    "adult_confirmed_at"?: string | null,"avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id": string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"suspended_until"?: string | null,"terms_accepted_at"?: string | null,"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
                   }
                   Update: {
-                    "adult_confirmed_at"?: string | null,"avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id"?: string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"terms_accepted_at"?: string | null,"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
+                    "adult_confirmed_at"?: string | null,"avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id"?: string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"suspended_until"?: string | null,"terms_accepted_at"?: string | null,"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -1499,7 +1499,40 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "before_user_created_hook":
+            "admin_can_see_conversation":
+{ Args: { "c": Omit<Database["public"]['Tables']["conversations"]['Row'], Database["public"]['Tables']["conversations"]['ComputedFields']> }; Returns: boolean
+                           },
+"admin_cancel_booking":
+{ Args: { "booking_id": string,"reason": string }; Returns: Json
+                           },
+"admin_cancel_trip":
+{ Args: { "reason": string,"trip_id": string }; Returns: Json
+                           },
+"admin_mark_refund_manual":
+{ Args: { "note"?: string,"payment_id": string,"ref": string }; Returns: Json
+                           },
+"admin_merge_places":
+{ Args: { "from_id": string,"into_id": string }; Returns: undefined
+                           },
+"admin_moderate":
+{ Args: { "action": Database["public"]['Enums']["mod_action"],"days"?: number,"reason": string,"report_id"?: string,"target_id": string }; Returns: undefined
+                           },
+"admin_resolve_report":
+{ Args: { "note"?: string,"outcome": string,"report_id": string }; Returns: undefined
+                           },
+"admin_search_users":
+{ Args: { "lim"?: number,"q": string }; Returns: Json[]
+                           },
+"admin_stats":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"admin_upsert_place":
+{ Args: { "payload": Json }; Returns: string
+                           },
+"admin_weekly":
+{ Args: { "weeks"?: number }; Returns: Json[]
+                           },
+"before_user_created_hook":
 { Args: { "event": Json }; Returns: Json
                            },
 "calc_fee_kz":
@@ -1508,11 +1541,17 @@ isOneToOne: false
 "cancel_booking":
 { Args: { "booking_id": string,"reason"?: string }; Returns: Json
                            },
+"cancel_booking_by_system":
+{ Args: { "b": Omit<Database["public"]['Tables']["bookings"]['Row'], Database["public"]['Tables']["bookings"]['ComputedFields']>,"p_reason": string }; Returns: number
+                           },
 "cancel_quote":
 { Args: { "booking_id": string }; Returns: Json
                            },
 "cancel_trip":
 { Args: { "reason"?: string,"trip_id": string }; Returns: undefined
+                           },
+"cancel_trip_cascade":
+{ Args: { "p_by": Database["public"]['Enums']["party"],"p_reason": string,"t": Omit<Database["public"]['Tables']["trips"]['Row'], Database["public"]['Tables']["trips"]['ComputedFields']> }; Returns: Json
                            },
 "complete_booking":
 { Args: { "b": Omit<Database["public"]['Tables']["bookings"]['Row'], Database["public"]['Tables']["bookings"]['ComputedFields']>,"p_by": Database["public"]['Enums']["party"] }; Returns: undefined
@@ -1556,6 +1595,7 @@ isOneToOne: false
 "rating_avg": number,
 "rating_count": number,
 "status": Database["public"]['Enums']["profile_status"],
+"suspended_until": string | null,
 "terms_accepted_at": string | null,
 "trips_driven": number,
 "trips_ridden": number,
@@ -1633,6 +1673,9 @@ isOneToOne: false
 "mask_text":
 { Args: { "p_body": string }; Returns: string
                            },
+"mod_log":
+{ Args: { "p_action": Database["public"]['Enums']["mod_action"],"p_admin": string,"p_payload"?: Json,"p_reason": string,"p_report"?: string,"p_target": string,"p_until"?: string }; Returns: string
+                           },
 "notification_delivered":
 { Args: { "error"?: string,"id": string,"ok": boolean }; Returns: undefined
                            },
@@ -1675,6 +1718,42 @@ isOneToOne: false
 "request_payout":
 { Args: { "amount_kz": number }; Returns: string
                            },
+"require_admin":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "adult_confirmed_at": string | null,
+"avatar_url": string | null,
+"balance_kz": number,
+"bio": string | null,
+"birth_year": number | null,
+"cancels_total": number,
+"chat_level": Database["public"]['Enums']["chat_level"],
+"created_at": string,
+"display_name": string,
+"driver_status": Database["public"]['Enums']["driver_status"],
+"driver_verified_at": string | null,
+"id": string,
+"is_admin": boolean,
+"last_seen_at": string | null,
+"locale": string,
+"no_shows": number,
+"payout_method": Json | null,
+"phone": string | null,
+"phone_verified_at": string | null,
+"rating_avg": number,
+"rating_count": number,
+"status": Database["public"]['Enums']["profile_status"],
+"suspended_until": string | null,
+"terms_accepted_at": string | null,
+"trips_driven": number,
+"trips_ridden": number,
+"updated_at": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "profiles"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "resolve_dispute":
 { Args: { "amount_kz"?: number,"booking_id": string,"outcome": string }; Returns: undefined
                            },
@@ -1718,6 +1797,9 @@ isOneToOne: false
 { Args: { "as_of": string }; Returns: number
                            },
 "sch_expire_requests":
+{ Args: { "as_of": string }; Returns: number
+                           },
+"sch_lift_suspensions":
 { Args: { "as_of": string }; Returns: number
                            },
 "sch_reconcile":
@@ -1877,6 +1959,7 @@ isOneToOne: false
 "rating_avg": number,
 "rating_count": number,
 "status": Database["public"]['Enums']["profile_status"],
+"suspended_until": string | null,
 "terms_accepted_at": string | null,
 "trips_driven": number,
 "trips_ridden": number,
@@ -1893,7 +1976,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "booking_mode": "instant"|"approval","booking_status": "pending_payment"|"payment_failed"|"requested"|"accepted"|"declined"|"expired"|"cancelled"|"awaiting_confirm"|"completed"|"no_show"|"disputed","chat_level": "bla"|"blabla"|"blablabla","driver_status": "none"|"pending"|"verified"|"rejected","ledger_account": "passenger_escrow"|"driver_balance"|"platform_fee"|"refunds"|"gateway_fees"|"cash_out"|"cash_in","luggage_size": "small"|"medium"|"large","mod_action": "warn"|"restrict"|"suspend"|"ban"|"unban"|"verify_id"|"resolve_dispute","notif_channel": "push"|"sms"|"inapp","notif_status": "queued"|"sent"|"failed"|"read","party": "passenger"|"driver"|"system","payment_status": "created"|"pending"|"paid"|"failed"|"expired"|"refunded"|"partially_refunded","payout_status": "requested"|"processing"|"paid"|"failed"|"cancelled","place_kind": "city"|"town"|"landmark","platform": "ios"|"android"|"web","profile_status": "active"|"restricted"|"suspended"|"banned"|"deleted","report_reason": "no_show"|"unsafe_driving"|"harassment"|"scam"|"cash_offer"|"wrong_price"|"other","report_status": "open"|"reviewed"|"actioned"|"dismissed","review_direction": "passenger_to_driver"|"driver_to_passenger","trip_status": "draft"|"published"|"full"|"departed"|"completed"|"cancelled"|"expired","vehicle_status": "active"|"removed","verification_status": "pending"|"approved"|"rejected"
+            "booking_mode": "instant"|"approval","booking_status": "pending_payment"|"payment_failed"|"requested"|"accepted"|"declined"|"expired"|"cancelled"|"awaiting_confirm"|"completed"|"no_show"|"disputed","chat_level": "bla"|"blabla"|"blablabla","driver_status": "none"|"pending"|"verified"|"rejected","ledger_account": "passenger_escrow"|"driver_balance"|"platform_fee"|"refunds"|"gateway_fees"|"cash_out"|"cash_in","luggage_size": "small"|"medium"|"large","mod_action": "warn"|"restrict"|"suspend"|"ban"|"unban"|"verify_id"|"resolve_dispute"|"hide_trip"|"cancel_booking"|"manual_refund"|"report_dismissed","notif_channel": "push"|"sms"|"inapp","notif_status": "queued"|"sent"|"failed"|"read","party": "passenger"|"driver"|"system","payment_status": "created"|"pending"|"paid"|"failed"|"expired"|"refunded"|"partially_refunded","payout_status": "requested"|"processing"|"paid"|"failed"|"cancelled","place_kind": "city"|"town"|"landmark","platform": "ios"|"android"|"web","profile_status": "active"|"restricted"|"suspended"|"banned"|"deleted","report_reason": "no_show"|"unsafe_driving"|"harassment"|"scam"|"cash_offer"|"wrong_price"|"other","report_status": "open"|"reviewed"|"actioned"|"dismissed","review_direction": "passenger_to_driver"|"driver_to_passenger","trip_status": "draft"|"published"|"full"|"departed"|"completed"|"cancelled"|"expired","vehicle_status": "active"|"removed","verification_status": "pending"|"approved"|"rejected"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -2013,7 +2096,7 @@ export const Constants = {
           }
         },"public": {
           Enums: {
-            "booking_mode": ["instant", "approval"],"booking_status": ["pending_payment", "payment_failed", "requested", "accepted", "declined", "expired", "cancelled", "awaiting_confirm", "completed", "no_show", "disputed"],"chat_level": ["bla", "blabla", "blablabla"],"driver_status": ["none", "pending", "verified", "rejected"],"ledger_account": ["passenger_escrow", "driver_balance", "platform_fee", "refunds", "gateway_fees", "cash_out", "cash_in"],"luggage_size": ["small", "medium", "large"],"mod_action": ["warn", "restrict", "suspend", "ban", "unban", "verify_id", "resolve_dispute"],"notif_channel": ["push", "sms", "inapp"],"notif_status": ["queued", "sent", "failed", "read"],"party": ["passenger", "driver", "system"],"payment_status": ["created", "pending", "paid", "failed", "expired", "refunded", "partially_refunded"],"payout_status": ["requested", "processing", "paid", "failed", "cancelled"],"place_kind": ["city", "town", "landmark"],"platform": ["ios", "android", "web"],"profile_status": ["active", "restricted", "suspended", "banned", "deleted"],"report_reason": ["no_show", "unsafe_driving", "harassment", "scam", "cash_offer", "wrong_price", "other"],"report_status": ["open", "reviewed", "actioned", "dismissed"],"review_direction": ["passenger_to_driver", "driver_to_passenger"],"trip_status": ["draft", "published", "full", "departed", "completed", "cancelled", "expired"],"vehicle_status": ["active", "removed"],"verification_status": ["pending", "approved", "rejected"]
+            "booking_mode": ["instant", "approval"],"booking_status": ["pending_payment", "payment_failed", "requested", "accepted", "declined", "expired", "cancelled", "awaiting_confirm", "completed", "no_show", "disputed"],"chat_level": ["bla", "blabla", "blablabla"],"driver_status": ["none", "pending", "verified", "rejected"],"ledger_account": ["passenger_escrow", "driver_balance", "platform_fee", "refunds", "gateway_fees", "cash_out", "cash_in"],"luggage_size": ["small", "medium", "large"],"mod_action": ["warn", "restrict", "suspend", "ban", "unban", "verify_id", "resolve_dispute", "hide_trip", "cancel_booking", "manual_refund", "report_dismissed"],"notif_channel": ["push", "sms", "inapp"],"notif_status": ["queued", "sent", "failed", "read"],"party": ["passenger", "driver", "system"],"payment_status": ["created", "pending", "paid", "failed", "expired", "refunded", "partially_refunded"],"payout_status": ["requested", "processing", "paid", "failed", "cancelled"],"place_kind": ["city", "town", "landmark"],"platform": ["ios", "android", "web"],"profile_status": ["active", "restricted", "suspended", "banned", "deleted"],"report_reason": ["no_show", "unsafe_driving", "harassment", "scam", "cash_offer", "wrong_price", "other"],"report_status": ["open", "reviewed", "actioned", "dismissed"],"review_direction": ["passenger_to_driver", "driver_to_passenger"],"trip_status": ["draft", "published", "full", "departed", "completed", "cancelled", "expired"],"vehicle_status": ["active", "removed"],"verification_status": ["pending", "approved", "rejected"]
           }
         }
 } as const
