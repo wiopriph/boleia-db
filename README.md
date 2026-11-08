@@ -157,10 +157,9 @@ I1 закрыт. Следующие итерации по разделу 13 ТЗ
 ## Облако
 
 ```bash
-supabase link --project-ref <ref>
-supabase db push
-supabase functions deploy
-supabase secrets set CASTBRICK_KEY=... 
+supabase login
+scripts/deploy.sh <project-ref> --seed     # link, db push (+seed), config push, functions deploy, secrets, Vault
+scripts/edge-smoke.sh --cloud <project-ref>
 ```
 
-Staging и prod — два разных проекта, два `link`. Отдельная организация от Ambo.
+Реальные ключи провайдеров - в `supabase/functions/.env.cloud` (в .gitignore), `deploy.sh` подхватит через `supabase secrets set --env-file`. На время разработки один общий проект для web и Flutter; перед релизом `scripts/wipe-data.sql`, потом отдельные staging и prod. Отдельная организация от Ambo.

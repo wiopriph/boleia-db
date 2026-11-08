@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
-# Сквозная проверка Edge Functions против мока шлюза. Нужен запущенный `supabase functions serve`
-# в другом терминале. По умолчанию делает `supabase db reset` и заполняет Vault; --no-reset пропускает.
+# Сквозная проверка Edge Functions против мока шлюза.
+#   локально: нужен `supabase functions serve` в другом терминале; по умолчанию db reset + Vault, --no-reset пропускает
+#   облако:   scripts/edge-smoke.sh --cloud <project-ref> после scripts/deploy.sh (данные остаются)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [[ "${1:-}" != "--no-reset" ]]; then
-  supabase db reset >/dev/null
-  scripts/dev-vault.sh
+MODE=${1:-local}
+if [[ "$MODE" == "--cloud" ]]; then
+  # scripts/edge-smoke.sh --cloud <project-ref>: без reset, данные в проекте остаются
+  REF=${2:?usage: scripts/edge-smoke.sh --cloud <project-ref>}
+  API="https://$REF.supabase.co"
+  KEYS=$(supabase projects api-keys --remote="$REF" -o json)
+  ANON=$(printf '%s' "$KEYS" | python3 -c 'import sys,json; ks=json.load(sys.stdin); print(next(k.get("api_key") or k.get("key") for k in ks if k.get("name")=="anon" or k.get("type")=="publishable"))')
+  SERVICE=$(printf '%s' "$KEYS" | python3 -c 'import sys,json; ks=json.load(sys.stdin); print(next(k.get("api_key") or k.get("key") for k in ks if k.get("name")=="service_role" or k.get("type")=="secret"))')
+  sql() { supabase db query --remote -o json "$1" | python3 -c 'import sys,json; r=json.load(sys.stdin); print("" if not r else list(r[0].values())[0])'; }
+else
+  if [[ "$MODE" != "--no-reset" ]]; then
+    supabase db reset >/dev/null
+    scripts/dev-vault.sh
+  fi
+  status=$(supabase status -o json 2>/dev/null)
+  API=$(printf '%s' "$status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["API_URL"])')
+  ANON=$(printf '%s' "$status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["ANON_KEY"])')
+  SERVICE=$(printf '%s' "$status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["SERVICE_ROLE_KEY"])')
+  DB=$(docker ps --format '{{.Names}}' | grep '^supabase_db_' | head -1)
+  sql() { docker exec -i "$DB" psql -U postgres -d postgres -Atq -c "$1"; }
 fi
-
-status=$(supabase status -o json 2>/dev/null)
-API=$(printf '%s' "$status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["API_URL"])')
-ANON=$(printf '%s' "$status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["ANON_KEY"])')
-SERVICE=$(printf '%s' "$status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["SERVICE_ROLE_KEY"])')
-DB=$(docker ps --format '{{.Names}}' | grep '^supabase_db_' | head -1)
 FN="$API/functions/v1"
-
-sql() { docker exec -i "$DB" psql -U postgres -d postgres -Atq -c "$1"; }
 jget() { python3 -c 'import sys,json; d=json.load(sys.stdin); print(d'"$1"')'; }
 step() { printf '\n== %s\n' "$1"; }
 check() { if [[ "$2" == "$3" ]]; then echo "ok   $1: $2"; else echo "FAIL $1: got '$2', want '$3'"; exit 1; fi; }
