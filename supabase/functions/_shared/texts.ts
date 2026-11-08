@@ -33,6 +33,14 @@ const texts: Record<string, (p: Payload) => { title: string; body: string }> = {
   booking_no_show: () => ({ title: "Marcado como ausente", body: "O condutor indicou que não apareceu. Reserva fechada sem reembolso." }),
   review_request: () => ({ title: "Como foi a viagem?", body: "Deixe a sua avaliação." }),
   reconciliation_alert: () => ({ title: "Alerta de conciliação", body: "Ledger e pagamentos não coincidem." }),
+  moderation_action: (p) => {
+    const a = String(p.action ?? "");
+    const titles: Record<string, string> = {
+      warn: "Aviso da moderação", restrict: "Conta limitada", suspend: "Conta suspensa",
+      ban: "Conta bloqueada", unban: "Conta reativada", unsuspend: "Suspensão terminada",
+    };
+    return { title: titles[a] ?? "Moderação", body: String(p.reason ?? "") };
+  },
   refund_manual: (p) => ({ title: "Reembolso manual", body: `${kz(p.refund_kz)} falharam 3 vezes no gateway.` }),
 };
 

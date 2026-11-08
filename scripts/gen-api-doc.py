@@ -93,20 +93,34 @@ def enums() -> str:
     return "\n".join(lines)
 
 
+VIEW_DOC = {
+    "trips_public": "Поездки в published/full для поиска и карточки. Без телефона и номера машины.",
+    "profiles_public": "Публичный профиль: доверие, рейтинг, бейдж отмен. Без телефона и баланса.",
+    "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок "
+                   "(фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и "
+                   "vehicle_*; pin_code появляется с departure_at - 2 ч. cancel_reason объясняет payment_failed и cancelled.",
+    "my_conversations": "Чаты текущего пользователя с собеседником, последним сообщением и unread_count (системные тоже считаются).",
+    "driver_wallet": "Кошелёк водителя: баланс, в ожидании, заработано, заявки в работе. Только своя строка.",
+    "reviews_public": "Видимые отзывы с именем и аватаром автора. Для /perfil/<id>/avaliacoes: where target_id = ...",
+    "route_stats": "Маршруты для SEO: все пары из route_durations плюс пары с поездками; счётчики, минимальная цена, "
+                   "длительность и подсказка цены. Materialized, refresh раз в час.",
+    "pending_refunds": "Очередь возвратов для Edge payments-refund. Только service role.",
+}
+
+
 def views() -> str:
     names = [r[0] for r in q("""select table_name from information_schema.views where table_schema = 'public'
                                 union select matviewname from pg_matviews where schemaname = 'public' order by 1""")]
     out = []
     for v in names:
-        grants = q(f"""select string_agg(distinct grantee, ', ' order by grantee) from information_schema.role_table_grants
-                       where table_schema = 'public' and table_name = '{v}' and privilege_type = 'SELECT'
-                       and grantee in ('anon', 'authenticated', 'service_role')""")
+        grants = q(f"""select string_agg(r, ', ' order by r) from unnest(array['anon', 'authenticated', 'service_role']) r
+                       where has_table_privilege(r, 'public.{v}', 'select')""")
         who = grants[0][0] if grants and grants[0][0] else "-"
         cols = q(f"""select a.attname, format_type(a.atttypid, a.atttypmod) from pg_attribute a
                      join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
                      where n.nspname = 'public' and c.relname = '{v}' and a.attnum > 0 and not a.attisdropped
                      order by a.attnum""")
-        out.append(f"### `{v}`\n\nЧитают: {who}.\n")
+        out.append(f"### `{v}`\n\n{VIEW_DOC.get(v, '')} Читают: {who}.\n")
         out.append("| Колонка | Тип |\n| --- | --- |")
         out.extend(f"| `{c}` | `{t}` |" for c, t in cols)
         out.append("")
@@ -247,7 +261,7 @@ DOC = f"""# Boleia API: контракт для клиентов
 
 | Функция | Вызов | Тело | Ответ |
 | --- | --- | --- | --- |
-| `payments-init` | POST, JWT пользователя | `{{ "booking_id": uuid, "simulate"?: "paid|failed|mismatch|silent" }}` (`simulate` только с моком) | `{{ payment_id, booking_id, amount_kz, expires_at, instructions: {{ type: "push"|"qr"|"redirect", deep_link?, qr_payload?, url? }} }}` |
+| `payments-init` | POST, JWT пользователя | `{{ "booking_id": uuid, "simulate"?: "paid|failed|mismatch|silent|silent_failed|qr|redirect" }}` (`simulate` только с моком: `qr`/`redirect` меняют `instructions`, `silent*` без вебхука) | `{{ payment_id, booking_id, amount_kz, expires_at, instructions: {{ type: "push"|"qr"|"redirect", deep_link?, qr_payload?, url? }} }}` |
 | `payments-status` | POST, JWT | `{{ "payment_id": uuid }}` | `{{ payment_id, payment_status, booking_status }}` |
 
 Ошибки функций: HTTP 4xx с `{{ "code": "BOLEIA-код без префикса" }}`, например `{{ "code": "PAYMENT_NOT_FOUND" }}`.
@@ -268,6 +282,45 @@ DOC = f"""# Boleia API: контракт для клиентов
 `notifications where user_id = uid and channel = 'inapp'` - лента в приложении; push через FCM по
 `register_device`. Типы: {notification_types()}. Payload содержит `booking_id` / `trip_id` /
 `conversation_id` для deep link (`boleia://booking/<id>`, `boleia://trip/<id>`).
+
+## Формы jsonb
+
+Аргументы `payload`/`doc_urls` и возвраты `jsonb` не выводятся из схемы; это их контракт.
+
+**Аргументы**
+
+| RPC | Ключи |
+| --- | --- |
+| `upsert_profile(payload)` | `display_name` (2-40), `avatar_url` (путь в `avatars/<uid>/`), `bio` (<= 300), `birth_year`, `chat_level` (enum), `locale`, `payout_method`: `{{"type":"mcx_express","phone":"+244XXXXXXXXX"}}` или `{{"type":"iban","iban":"<25 знаков>","bank":"..."}}`, `terms_accepted: true`, `adult_confirmed: true` (фиксируются один раз). Любой ключ опционален |
+| `upsert_vehicle(payload)` | `id` (если есть - изменить), `make`*, `model`*, `color`, `year`, `plate`, `seats_total`* (1-8), `photo_url`, `status` (`active`/`removed`). Смена `plate` сбрасывает `verified` |
+| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
+| `update_trip(trip_id, payload)` | подмножество: `price_per_seat_kz`, `seats_offered`, `notes`, `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `origin_detail`, `destination_detail`, `departure_at`, `booking_mode`; другие ключи -> `TRIP_FIELD_LOCKED` |
+| `submit_verification(vehicle_id, doc_urls)` | `id_doc_url`, `licence_url`, `vehicle_photo_url`, `selfie_url` - все четыре, значения как пути `<uid>/<file>` в бакете `verifications` |
+
+**Возвраты**
+
+| RPC | Ключи |
+| --- | --- |
+| `request_booking`, `retry_payment` | `booking_id`, `payment_id`, `amount_kz` (= `price_total_kz` + `fee_kz`), `price_total_kz`, `fee_kz`, `expires_at` |
+| `cancel_quote` | `refund_kz`, `gateway_fee_kz`, `held_kz`, `rule`, `counter` (bool: вырастет ли `cancels_total`) |
+| `cancel_booking` | `status` (`cancelled` или `declined`), `refund_kz`, `held_kz`, `rule` |
+| `enter_pin` | `ok` (bool); при `ok=false` `attempts_left`; при `ok=true` `pin_entered_at`, `already` (повторный ввод) |
+| `reveal_contact` | `user_id`, `display_name`, `phone` (E.164) |
+| `publish_trip` | `id`, `price_hint_kz` (может быть null) |
+| `price_hint` | `price_hint_kz`, `minutes` (null, если маршрута нет в `route_durations`) |
+| `upsert_profile` | строка `profiles` целиком |
+| `my_bookings.pin_code` | 4 цифры или null до `departure_at - 2 ч` |
+
+**Значения `rule`** (правило возврата, ТЗ раздел 5): `driver_cancel` (водитель отменил, 100 %),
+`driver_decline` (водитель отклонил запрос, 100 %), `driver_unconfirmed` (водитель не подтвердил поездку
+к -6 ч, 100 %), `passenger_withdraw` (пассажир снял неотвеченный запрос, 100 % минус комиссия шлюза),
+`passenger_early` (> 24 ч, 100 % минус комиссия шлюза), `passenger_late` (< 24 ч, 50 %).
+
+**Значения `bookings.cancel_reason`**, которые ставит система (остальное - свободный текст стороны):
+`PAYMENT_PHONE_MISMATCH` (оплата с чужого номера, деньги возвращаются), `payment_expired` (15 минут
+вышли), `trip_departed` (не оплачено к выезду), `trip_cancelled` (водитель отменил поездку, бронь была
+не оплачена), `no_response` (водитель не ответил, запрос истёк), `dispute_refund` (модератор вернул
+деньги), `driver_no_show` (водитель не приехал, автоотмена), `moderation` (поездка скрыта платформой).
 
 ## Enum'ы
 

@@ -1,6 +1,7 @@
 // payments-mock: dev-реализация docs/gateway-contract.md. Состояния не хранит: статус читает из нашей
 // таблицы payments, вебхук шлёт сам через 5 секунд. metadata.simulate: paid (по умолчанию) | failed |
-// mismatch (чужой номер) | silent (вебхука нет, проверяет sweep payments-status) | silent_failed.
+// mismatch (чужой номер) | silent (вебхука нет, проверяет sweep payments-status) | silent_failed |
+// qr (инструкция с qr_payload) | redirect (инструкция со ссылкой); оплата при этом как обычно через 5 с.
 import { handler, json } from "../_shared/http.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { gateway, GATEWAY_API_KEY, type GatewayStatus } from "../_shared/gateway.ts";
@@ -22,6 +23,7 @@ async function deliverWebhook(body: CreateBody, transactionId: string) {
   await new Promise((r) => setTimeout(r, WEBHOOK_DELAY_MS));
   const sim = body.metadata?.simulate ?? "paid";
   if (sim.startsWith("silent")) return;
+  // qr и redirect меняют только инструкцию, оплата проходит
   const payload = JSON.stringify({
     event: "payment.updated",
     transaction_id: transactionId,
@@ -60,11 +62,13 @@ Deno.serve(handler(async (req) => {
     const transactionId = `gw_${body.reference}`;
     const job = deliverWebhook(body, transactionId).catch((e) => console.error("[mock] webhook failed", e));
     if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(job);
-    return json({
-      transaction_id: transactionId,
-      status: "pending",
-      instructions: { type: "push", deep_link: `mcx://pay/${transactionId}` },
-    }, 201);
+    const sim = body.metadata?.simulate ?? "paid";
+    const instructions = sim === "qr"
+      ? { type: "qr", qr_payload: `MCX|${transactionId}|${body.amount}|AOA` }
+      : sim === "redirect"
+      ? { type: "redirect", url: `${GATEWAY_BASE_URL}/checkout/${transactionId}` }
+      : { type: "push", deep_link: `mcx://pay/${transactionId}` };
+    return json({ transaction_id: transactionId, status: "pending", instructions }, 201);
   }
 
   const statusMatch = path.match(/^\/payments\/([^/]+)$/);

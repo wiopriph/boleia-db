@@ -737,14 +737,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "avatar_url": string | null,"balance_kz": number,"bio": string | null,"birth_year": number | null,"cancels_total": number,"chat_level": Database["public"]['Enums']["chat_level"],"created_at": string,"display_name": string,"driver_status": Database["public"]['Enums']["driver_status"],"driver_verified_at": string | null,"id": string,"is_admin": boolean,"last_seen_at": string | null,"locale": string,"no_shows": number,"payout_method": Json | null,"phone": string | null,"phone_verified_at": string | null,"rating_avg": number,"rating_count": number,"status": Database["public"]['Enums']["profile_status"],"trips_driven": number,"trips_ridden": number,"updated_at": string
+                    "adult_confirmed_at": string | null,"avatar_url": string | null,"balance_kz": number,"bio": string | null,"birth_year": number | null,"cancels_total": number,"chat_level": Database["public"]['Enums']["chat_level"],"created_at": string,"display_name": string,"driver_status": Database["public"]['Enums']["driver_status"],"driver_verified_at": string | null,"id": string,"is_admin": boolean,"last_seen_at": string | null,"locale": string,"no_shows": number,"payout_method": Json | null,"phone": string | null,"phone_verified_at": string | null,"rating_avg": number,"rating_count": number,"status": Database["public"]['Enums']["profile_status"],"terms_accepted_at": string | null,"trips_driven": number,"trips_ridden": number,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id": string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
+                    "adult_confirmed_at"?: string | null,"avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id": string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"terms_accepted_at"?: string | null,"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
                   }
                   Update: {
-                    "avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id"?: string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
+                    "adult_confirmed_at"?: string | null,"avatar_url"?: string | null,"balance_kz"?: number,"bio"?: string | null,"birth_year"?: number | null,"cancels_total"?: number,"chat_level"?: Database["public"]['Enums']["chat_level"],"created_at"?: string,"display_name"?: string,"driver_status"?: Database["public"]['Enums']["driver_status"],"driver_verified_at"?: string | null,"id"?: string,"is_admin"?: boolean,"last_seen_at"?: string | null,"locale"?: string,"no_shows"?: number,"payout_method"?: Json | null,"phone"?: string | null,"phone_verified_at"?: string | null,"rating_avg"?: number,"rating_count"?: number,"status"?: Database["public"]['Enums']["profile_status"],"terms_accepted_at"?: string | null,"trips_driven"?: number,"trips_ridden"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -1184,7 +1184,7 @@ isOneToOne: false
                   ]
                 },"my_bookings": {
                   Row: {
-                    "booking_mode": Database["public"]['Enums']["booking_mode"],"cancelled_at": string | null,"cancelled_by": Database["public"]['Enums']["party"] | null,"completed_at": string | null,"conversation_id": string | null,"created_at": string,"departure_at": string,"destination_detail": string | null,"destination_name": string,"destination_slug": string,"driver_avatar_url": string | null,"driver_id": string,"driver_name": string,"fee_kz": number,"id": string,"origin_detail": string | null,"origin_name": string,"origin_slug": string,"paid_total_kz": number | null,"passenger_confirmed_at": string | null,"passenger_id": string,"payment_expires_at": string | null,"payment_status": Database["public"]['Enums']["payment_status"] | null,"pin_code": string | null,"pin_entered_at": string | null,"price_total_kz": number,"refund_kz": number,"requested_at": string | null,"responded_at": string | null,"seats": number,"status": Database["public"]['Enums']["booking_status"],"trip_id": string,"trip_status": Database["public"]['Enums']["trip_status"],"vehicle_color": string | null,"vehicle_make": string,"vehicle_model": string,"vehicle_photo_url": string | null,"vehicle_plate_suffix": string | null
+                    "booking_mode": Database["public"]['Enums']["booking_mode"],"cancel_reason": string | null,"cancelled_at": string | null,"cancelled_by": Database["public"]['Enums']["party"] | null,"completed_at": string | null,"conversation_id": string | null,"created_at": string,"departure_at": string,"destination_detail": string | null,"destination_name": string,"destination_slug": string,"driver_avatar_url": string | null,"driver_id": string,"driver_name": string,"fee_kz": number,"id": string,"message": string | null,"origin_detail": string | null,"origin_name": string,"origin_slug": string,"paid_total_kz": number | null,"passenger_avatar_url": string | null,"passenger_cancels_total": number,"passenger_confirmed_at": string | null,"passenger_id": string,"passenger_name": string,"passenger_rating_avg": number,"passenger_trips_ridden": number,"payment_expires_at": string | null,"payment_status": Database["public"]['Enums']["payment_status"] | null,"pin_code": string | null,"pin_entered_at": string | null,"price_total_kz": number,"refund_kz": number,"requested_at": string | null,"responded_at": string | null,"seats": number,"status": Database["public"]['Enums']["booking_status"],"trip_id": string,"trip_status": Database["public"]['Enums']["trip_status"],"vehicle_color": string | null,"vehicle_make": string,"vehicle_model": string,"vehicle_photo_url": string | null,"vehicle_plate_suffix": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1412,9 +1412,77 @@ isOneToOne: false
                         Relationships: [
                     
                   ]
+                },"reviews_public": {
+                  Row: {
+                    "author_avatar_url": string | null,"author_id": string,"author_name": string,"booking_id": string,"comment": string | null,"created_at": string,"direction": Database["public"]['Enums']["review_direction"],"id": string,"rating": number,"tags": (string)[],"target_id": string
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    {
+      foreignKeyName: "reviews_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "driver_wallet"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "reviews_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "reviews_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "profiles_public"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "reviews_author_id_fkey"
+      columns: ["author_id"]
+isOneToOne: false
+      referencedRelation: "trips_public"
+      referencedColumns: ["driver_id"]
+    },{
+      foreignKeyName: "reviews_booking_id_fkey"
+      columns: ["booking_id"]
+isOneToOne: false
+      referencedRelation: "bookings"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "reviews_booking_id_fkey"
+      columns: ["booking_id"]
+isOneToOne: false
+      referencedRelation: "my_bookings"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "reviews_target_id_fkey"
+      columns: ["target_id"]
+isOneToOne: false
+      referencedRelation: "driver_wallet"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "reviews_target_id_fkey"
+      columns: ["target_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "reviews_target_id_fkey"
+      columns: ["target_id"]
+isOneToOne: false
+      referencedRelation: "profiles_public"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "reviews_target_id_fkey"
+      columns: ["target_id"]
+isOneToOne: false
+      referencedRelation: "trips_public"
+      referencedColumns: ["driver_id"]
+    }
+                  ]
                 },"route_stats": {
                   Row: {
-                    "destination_name": string,"destination_slug": string,"min_price_kz": number | null,"next_departure_at": string | null,"origin_name": string,"origin_slug": string,"refreshed_at": string | null,"trips_30d": number | null,"trips_upcoming": number | null
+                    "destination_name": string,"destination_slug": string,"min_price_kz": number | null,"minutes": number | null,"next_departure_at": string | null,"origin_name": string,"origin_slug": string,"price_hint_kz": number | null,"refreshed_at": string | null,"trips_30d": number | null,"trips_upcoming": number | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1466,7 +1534,8 @@ isOneToOne: false
                            },
 "current_profile":
 { Args: Record<PropertyKey, never>; Returns: {
-              "avatar_url": string | null,
+              "adult_confirmed_at": string | null,
+"avatar_url": string | null,
 "balance_kz": number,
 "bio": string | null,
 "birth_year": number | null,
@@ -1487,6 +1556,7 @@ isOneToOne: false
 "rating_avg": number,
 "rating_count": number,
 "status": Database["public"]['Enums']["profile_status"],
+"terms_accepted_at": string | null,
 "trips_driven": number,
 "trips_ridden": number,
 "updated_at": string
@@ -1785,7 +1855,8 @@ isOneToOne: false
                            },
 "upsert_profile":
 { Args: { "payload": Json }; Returns: {
-              "avatar_url": string | null,
+              "adult_confirmed_at": string | null,
+"avatar_url": string | null,
 "balance_kz": number,
 "bio": string | null,
 "birth_year": number | null,
@@ -1806,6 +1877,7 @@ isOneToOne: false
 "rating_avg": number,
 "rating_count": number,
 "status": Database["public"]['Enums']["profile_status"],
+"terms_accepted_at": string | null,
 "trips_driven": number,
 "trips_ridden": number,
 "updated_at": string
