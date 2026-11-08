@@ -18,10 +18,20 @@ function bearer(req: Request): string | null {
   return h.toLowerCase().startsWith("bearer ") ? h.slice(7).trim() : null;
 }
 
-// Вызов от cron (edge_call) или другой нашей функции: service role key
+// Вызов от cron (edge_call) или другой нашей функции: service role key. Подпись JWT уже проверила
+// платформа (verify_jwt у этих функций включён), здесь читается только claim role.
 export function isServiceCall(req: Request): boolean {
   const t = bearer(req);
-  return !!t && !!SERVICE_KEY && t === SERVICE_KEY;
+  if (!t) return false;
+  if (SERVICE_KEY && t === SERVICE_KEY) return true;
+  const parts = t.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch {
+    return false;
+  }
 }
 
 export function requireService(req: Request): void {

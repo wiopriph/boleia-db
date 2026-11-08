@@ -13,7 +13,11 @@ if [[ "$MODE" == "--cloud" ]]; then
   KEYS=$(supabase projects api-keys --remote="$REF" -o json)
   ANON=$(printf '%s' "$KEYS" | python3 -c 'import sys,json; ks=json.load(sys.stdin); print(next(k.get("api_key") or k.get("key") for k in ks if k.get("name")=="anon" or k.get("type")=="publishable"))')
   SERVICE=$(printf '%s' "$KEYS" | python3 -c 'import sys,json; ks=json.load(sys.stdin); print(next(k.get("api_key") or k.get("key") for k in ks if k.get("name")=="service_role" or k.get("type")=="secret"))')
-  sql() { supabase db query --remote -o json "$1" | python3 -c 'import sys,json; r=json.load(sys.stdin); print("" if not r else list(r[0].values())[0])'; }
+  sql() { supabase db query --remote --yes -o json "$1" 2>/dev/null | python3 -c '
+import sys, json
+raw = sys.stdin.read(); raw = raw[raw.find("{"):]
+rows = json.loads(raw).get("rows") or []
+print("" if not rows else list(rows[0].values())[0])'; }
 else
   if [[ "$MODE" != "--no-reset" ]]; then
     supabase db reset >/dev/null
@@ -40,8 +44,18 @@ ANA=$(printf '%s' "$VERIFY" | jget '["user"]["id"]')
 check "seed Ana logged in" "$ANA" "55555555-5555-5555-5555-555555555555"
 AUTH=(-H "apikey: $ANON" -H "Authorization: Bearer $JWT" -H 'content-type: application/json')
 
+# в облаке данные остаются между прогонами: снимаем активные брони Ana, чтобы не упереться в лимит 3
+step "cleanup Ana: active bookings, restricted after mismatch runs"
+sql "update public.profiles set status='active' where id='$ANA' and status='restricted'; delete from public.events where user_id='$ANA' and name='payment_phone_mismatch'" >/dev/null
+for B in $(sql "select string_agg(id::text, ' ') from public.bookings where passenger_id='$ANA' and status in ('requested','accepted')"); do
+  curl -s -X POST "$API/rest/v1/rpc/cancel_booking" "${AUTH[@]}" -d "{\"booking_id\":\"$B\"}" >/dev/null && echo "cancelled $B"
+done
+
 pick_trip() { sql "select id from public.trips t where t.status='published' and t.driver_id<>'$ANA' and not exists (select 1 from public.bookings b where b.trip_id=t.id and b.passenger_id='$ANA' and b.status in ('pending_payment','requested','accepted','awaiting_confirm')) and t.booking_mode='instant' order by departure_at limit 1"; }
-book() { curl -sf -X POST "$API/rest/v1/rpc/request_booking" "${AUTH[@]}" -d "{\"trip_id\":\"$1\",\"seats\":1}" | jget '["booking_id"]'; }
+book() {
+  local r; r=$(curl -s -X POST "$API/rest/v1/rpc/request_booking" "${AUTH[@]}" -d "{\"trip_id\":\"$1\",\"seats\":1}")
+  printf '%s' "$r" | jget '["booking_id"]' 2>/dev/null || { echo "request_booking failed: $r" >&2; exit 1; }
+}
 
 step "instant: init -> mock webhook (paid) -> accepted"
 T1=$(pick_trip); B1=$(book "$T1")
@@ -64,7 +78,7 @@ sleep 7
 check "booking payment_failed" "$(sql "select status from public.bookings where id='$B2'")" "payment_failed"
 check "refund queued" "$(sql "select count(*) from public.pending_refunds where payment_id='$P2'")" "1"
 R=$(curl -sf -X POST "$FN/payments-refund" -H "Authorization: Bearer $SERVICE" -H 'content-type: application/json' -d '{}')
-check "refund processed" "$(printf '%s' "$R" | jget '["ok"]')" "1"
+echo "payments-refund: $R (в облаке cron мог успеть раньше)"
 check "payment refunded" "$(sql "select status from public.payments where id='$P2'")" "refunded"
 
 step "silent: no webhook -> sweep payments-status asks the gateway"
@@ -73,7 +87,7 @@ P3=$(curl -sf -X POST "$FN/payments-init" "${AUTH[@]}" -d "{\"booking_id\":\"$B3
 sleep 1
 sql "update public.payments set expires_at = now() - interval '1 minute' where id='$P3'" >/dev/null
 R=$(curl -sf "$FN/payments-status?sweep=1" -H "Authorization: Bearer $SERVICE")
-check "sweep updated" "$(printf '%s' "$R" | jget '["updated"]')" "1"
+echo "payments-status sweep: $R (в облаке cron мог успеть раньше)"
 check "booking accepted via sweep" "$(sql "select status from public.bookings where id='$B3'")" "accepted"
 
 step "webhook with bad signature is rejected"
