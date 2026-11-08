@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(135);
+select plan(136);
 
 -- ---------------------------------------------------------------------------
 -- Контекст и хелперы
@@ -127,6 +127,8 @@ reset role;
 insert into ctx values ('joao_nm', pg_temp.notif_n('joao', 'new_message')::text);
 select pg_temp.as_user(pg_temp.cu('teresa'));
 select is((select driver_name from public.my_bookings where id = pg_temp.cu('t_j2')), 'João M.', 'passenger sees her booking with driver name in my_bookings');
+select is((select (vehicle_make, vehicle_model, vehicle_color, vehicle_plate_suffix) from public.my_bookings where id = pg_temp.cu('t_j2')),
+  ('Toyota'::text, 'Corolla'::text, 'branco'::text, '-AB'::text), 'my_bookings carries the car and the plate suffix');
 select is((select (other_user_name, unread_count) from public.my_conversations where id = pg_temp.conv('j2', 'teresa')), ('João M.'::text, 1::bigint), 'passenger sees the chat with the driver name; system message counts as unread');
 reset role;
 select pg_temp.as_user(pg_temp.cu('joao'));

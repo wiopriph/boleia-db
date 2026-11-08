@@ -168,6 +168,11 @@
 | `payment_status` | `payment_status` |
 | `payment_expires_at` | `timestamp with time zone` |
 | `conversation_id` | `uuid` |
+| `vehicle_make` | `text` |
+| `vehicle_model` | `text` |
+| `vehicle_color` | `text` |
+| `vehicle_photo_url` | `text` |
+| `vehicle_plate_suffix` | `text` |
 
 ### `my_conversations`
 
