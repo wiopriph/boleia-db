@@ -121,7 +121,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | balance\_kz | integer | денормализованный баланс водителя = сумма `ledger_entries`; пересчёт триггером |
 | payout\_method | jsonb | `{type: 'mcx_express', phone}` или `{type: 'iban', iban, bank}` |
 | phone\_verified\_at | timestamptz | ставится при первом OTP |
-| status | enum `profile_status` | `active`, `restricted`, `suspended`, `banned` |
+| status | enum `profile_status` | `active`, `restricted`, `suspended`, `banned`, `deleted` (после `delete_me`: профиль обезличен, в публичных views не показывается, RPC недоступны) |
 | locale | text default 'pt-AO' | — |
 | last\_seen\_at | timestamptz | — |
 
@@ -298,6 +298,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | booking\_id | uuid FK bookings, nullable | null, пока пассажир не оплатил; проставляется в `confirm_payment` |
 | last\_message\_at | timestamptz | для сортировки списка чатов |
 | closed\_at | timestamptz | `completed + 7 дней`, отмена + 24 ч, или `departure_at + 24 ч` без брони; после — только чтение |
+| passenger\_seen\_at, driver\_seen\_at | timestamptz | когда сторона последний раз была в чате (`mark_read`, `send_message`); push `new_message` не шлётся, если получатель был в чате < 60 с назад |
 
 `unique (trip_id, passenger_id)`. Создаётся при первом сообщении из карточки поездки («Perguntar ao condutor») или при оплате, если пассажир не писал. Чаты без брони: не больше 5 новых в сутки на пассажира, не больше 10 сообщений от пассажира в одном чате до оплаты.
 
@@ -334,7 +335,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | Поле | Тип | Примечание |
 | --- | --- | --- |
 | id | uuid PK | — |
-| reporter\_id | uuid FK profiles | — |
+| reporter\_id | uuid FK profiles, nullable | null = автожалоба системы (`cash_offer`) |
 | target\_user\_id | uuid FK profiles | — |
 | trip\_id, booking\_id, message\_id | nullable | контекст |
 | reason | enum `report_reason` | `no_show`, `unsafe_driving`, `harassment`, `scam`, `cash_offer`, `wrong_price`, `other` |
@@ -500,8 +501,8 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `search_trips(origin, destination, date, seats, cursor)` | все, включая анонимов | поиск по `trips_public`, ±1 день; сортировка: сначала по времени, при равном — verified выше; пишет `events.search` |
 | `upsert_profile(payload)` | владелец | имя, bio, год рождения, chat\_level, payout\_method; телефон не меняется здесь |
 | `upsert_vehicle(payload)` | владелец | макс. 3 активные машины; смена номера сбрасывает `verified` |
-| `submit_verification(vehicle_id, doc_urls)` | владелец | создаёт заявку `pending`; `driver_status → pending`; после `rejected` можно подать снова, не раньше чем через 24 ч |
-| `review_verification(id, approve, reason)` | admin | approve → `driver_status = verified`, `vehicles.verified = true`; reject → причина пользователю |
+| `submit_verification(vehicle_id, doc_urls)` | владелец | `doc_urls` — четыре пути в бакете `verifications/<uid>/` (`VERIFICATION_INCOMPLETE`); одна `pending` (`VERIFICATION_PENDING`); после `rejected` не раньше чем через 24 ч (`RATE_LIMITED`); `driver_status → pending`, если был `none`/`rejected` (verified водитель с новой машиной остаётся verified); админам `verification_submitted` |
+| `review_verification(id, approve, reason)` | admin | approve → `driver_status = verified`, `vehicles.verified = true`, `moderation_actions(verify_id)`; reject → `reason` обязателен (`REASON_REQUIRED`), `driver_status = rejected`, если не verified по другой машине; уведомление с причиной |
 | `publish_trip(payload)` | любой водитель с машиной и `payout_method` | валидация; `booking_mode` (instant по умолчанию); не больше 5 активных поездок; запрет дубля ±2 ч; подсказка цены из `route_durations` |
 | `create_return_trip(trip_id, departure_at) → uuid` | водитель | копия поездки с перестановкой городов и точек, та же машина, цена, места, режим брони, багаж, флаги, заметки; внутри вызывает `publish_trip`, поэтому все его проверки и ошибки те же |
 | `update_trip(trip_id, payload)` | водитель | цена/места/заметки/багаж/флаги/детали точек — только пока нет оплаченных броней (`TRIP_HAS_BOOKINGS`); время — пока нет ни одной брони, включая `pending_payment`, сбрасывает `driver_confirmed_at`; `booking_mode` — в любой момент, действует на новые брони; любой другой ключ (`vehicle_id`, города) → `TRIP_FIELD_LOCKED`; поездка не в `published`/`full` → `TRIP_CLOSED` |
@@ -517,16 +518,16 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `confirm_trip(booking_id, happened bool)` | пассажир | только из `awaiting_confirm`; true → `completed` + ledger `escrow − / driver_balance + / platform_fee +`, `trips_ridden` +1, обеим сторонам `review_request` через 24 ч; false → `disputed`, водителю `dispute_opened` |
 | `mark_no_show(booking_id)` | водитель | только из `awaiting_confirm`, в первые 48 ч (`NO_SHOW_WINDOW_CLOSED`), и только если по этой поездке введён PIN хотя бы одного другого пассажира: → `no_show`, ledger release водителю, пассажиру `no_shows` +1; поездка с единственным пассажиром без PIN → `disputed`, решает модератор; несколько пассажиров без PIN или PIN самой брони → `NO_SHOW_NEEDS_PIN` |
 | `resolve_dispute(booking_id, outcome, amount_kz)` | admin (`NOT_ADMIN`) | `outcome` ∈ {`completed`, `refund_full`, `refund_partial`} (`DISPUTE_OUTCOME_INVALID`); `completed` → как подтверждение пассажира; `refund_full` → возврат, бронь `cancelled` от `system`, водителю `no_shows` +1; `refund_partial` → `amount_kz` пассажиру (`DISPUTE_AMOUNT_INVALID` вне 1..эскроу−1), остаток водителю минус комиссия пропорционально, бронь `completed`; пишет `moderation_actions(resolve_dispute)`, обеим сторонам `dispute_resolved` |
-| `request_payout(amount_kz)` | любой водитель с `payout_method` | `balance_kz ≥ amount ≥ 5 000`; не чаще раза в 7 дней; ledger `driver_balance − / cash_out +`; заявка `requested` |
-| `mark_payout(payout_id, status, ref)` | admin | `paid` / `failed` (при failed — возврат на баланс) |
-| `send_message(conversation_id?, trip_id?, body)` | участник | без `conversation_id` — создаёт чат по (trip, passenger); лимиты 5 новых чатов/сутки и 10 сообщений до брони; только в открытом чате; маскирование номеров/ссылок до `departure_at − 2 ч`; 60 сообщений/мин |
+| `request_payout(amount_kz)` | любой водитель с `payout_method` | `amount ≥ 5 000` (`AMOUNT_INVALID`); одна заявка в работе (`PAYOUT_PENDING`); не чаще раза в 7 дней (`RATE_LIMITED`); `balance_kz ≥ amount` (`INSUFFICIENT_BALANCE`); ledger `payout:<id>` `driver_balance − / cash_out +`; заявка `requested` со снимком `payout_method`; админам `payout_requested` |
+| `mark_payout(payout_id, status, ref)` | admin | `processing` / `paid` / `failed` из `requested`/`processing`; `paid` → `provider_ref`, `processed_by/at`, водителю `payout_paid`; `failed` → ledger `payout_failed:<id>` `cash_out − / driver_balance +`, водителю `payout_failed` |
+| `send_message(body, conversation_id?, trip_id?) → message_id` | участник | без `conversation_id` — создаёт чат по (trip, passenger) для поездки в `published`/`full`; лимиты: 5 новых чатов без брони за сутки и 10 сообщений пассажира до оплаченной брони (`CHAT_LIMIT_REACHED`), 60 сообщений/мин (`RATE_LIMITED`); только в открытом чате (`CHAT_CLOSED`); маскирование триггером; получателю push `new_message` с превью, если он не был в чате последние 60 с |
 | `mark_read(conversation_id, up_to_message_id)` | участник | — |
-| `reveal_contact(booking_id)` | обе стороны | только `accepted`/`awaiting_confirm` и `now() ≥ departure_at − 2 ч`; пишет `contact_reveals` |
-| `submit_review(booking_id, rating, tags, comment)` | обе стороны | только `completed`/`no_show`; 14 дней на отзыв |
-| `report_user(target_id, reason, details, context)` | любой | — |
+| `reveal_contact(booking_id) → {user_id, display_name, phone}` | обе стороны | только `accepted`/`awaiting_confirm` (`BOOKING_CLOSED`) и `now() ≥ departure_at − 2 ч` (`CONTACT_LOCKED`); пишет `contact_reveals` |
+| `submit_review(booking_id, rating, tags, comment)` | обе стороны | только `completed`/`no_show`; 14 дней от `completed_at` (`REVIEW_WINDOW_CLOSED`); `rating` 1–5, `tags` из `pontual`/`condução_segura`/`simpático`, `comment` ≤ 300; один отзыв на автора (`REVIEW_DUPLICATE`) |
+| `report_user(target_id, reason, details, trip_id?, booking_id?, message_id?)` | любой | не на себя (`TARGET_INVALID`); ≤ 10 жалоб в сутки; `reports(open)`; админам in-app `report_opened` |
 | `register_device(platform, token, app_version)` | клиент | upsert по токену |
 | `mark_notifications_read(ids[])` | владелец | — |
-| `delete_me()` | владелец | запрещено при активных бронях или `balance_kz > 0` |
+| `delete_me()` | владелец | запрещено при активных бронях или активных поездках водителя (`HAS_ACTIVE_BOOKINGS`), при `balance_kz ≠ 0` или заявке на выплату в работе (`BALANCE_NOT_ZERO`); обезличивает профиль (`status = deleted`, имя «Utilizador removido», телефон и метод выплаты null), снимает машины, закрывает чаты, удаляет устройства, в `auth.users` обнуляет телефон и ставит `banned_until = infinity`; поездки, брони, отзывы, ledger остаются |
 
 **Триггеры**
 
@@ -534,7 +535,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 - `bookings` → `requested` → найти `conversations` по (trip\_id, passenger\_id) или создать, проставить `booking_id` + системное сообщение «Запрос оплачен, водитель ответит за 24 ч».
 - `bookings` → `accepted` → системное сообщение с PIN отправляется в чат только в `departure_at − 2 ч` (cron), не триггером.
 - `ledger_entries` after insert → пересчёт `profiles.balance_kz`; before update/delete → raise.
-- `messages` before insert → маскирование `+244\d{9}`, `9\d{8}`, `wa.me`, `http` до `departure_at − 2 ч`; `masked = true`; 3 замаскированных сообщения от одного пользователя → `reports(cash_offer)` автоматически.
+- `messages` before insert → маскирование `\+?244\d{9}`, `9\d{8}` (отдельным числом), `wa.me`, `http(s)://` → «[oculto]», `masked = true`; пока у чата нет брони в `accepted`/`awaiting_confirm`/`completed`/`no_show`/`disputed` или до `departure_at − 2 ч`; системные сообщения не маскируются. After insert: третье замаскированное сообщение одного отправителя в чате → `reports(reporter_id = null, cash_offer)` один раз на чат и отправителя, админам `report_opened`.
 - `reviews` after insert → пересчёт `profiles.rating_avg`, `rating_count`; `is_visible`, если второй отзыв уже есть.
 - Финал брони: `complete_booking` (внутренняя, её вызывают `confirm_trip`, `resolve_dispute` и cron) → `completed`, ledger release, `trips_ridden` +1 на бронь, `review_request` обеим сторонам через 24 ч. Затем `settle_trip`: когда у поездки `departed` не осталось броней в `accepted`/`awaiting_confirm`/`disputed`, удержанные 50 % поздних отмен → release водителю, поездка → `completed`, `trips_driven` +1 на поездку (не на бронь), если хотя бы одна бронь дошла до `completed`/`no_show`.
 - Уведомления о переходах статусов пишут сами RPC и cron через `notify()` (inapp всегда, плюс push при живом токене, иначе SMS, если событие это допускает). Общего триггера нет: тексты и адресаты у каждого перехода разные. Инвариант "каждый переход пишет уведомление" проверяют тесты.
@@ -590,8 +591,8 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Профиль водителя публичный | `profiles_public` (без телефона, без `is_admin`, без баланса) | все |
 | Отзывы о пользователе | `reviews` where `is_visible` | все |
 | Мои поездки как водителя | `trips` where `driver_id = uid` + вложенные `bookings` (без телефона пассажира) | владелец |
-| Мои брони | `my_bookings` — с `payments.status` и `conversation_id` | владелец |
-| Мои чаты и сообщения | `my_conversations`, `messages` by `conversation_id` | участники |
+| Мои брони | `my_bookings` — с `payments.status` и `conversation_id`; view фильтрует по `auth.uid()` сама (пассажир или водитель поездки), без `security_invoker`: RLS `trips`/`profiles` не отдала бы пассажиру строки водителя | владелец |
+| Мои чаты и сообщения | `my_conversations` (фильтр по `auth.uid()` внутри view; `unread_count` считает и системные сообщения), `messages` by `conversation_id` | участники |
 | Кошелёк водителя | `driver_wallet` + `payouts` | владелец |
 | Очередь возвратов в шлюз | `pending_refunds` (`refund_kz > 0`, `refund_ref is null`, `refund_attempts < 3`) | только service role (Edge `payments-refund`) |
 | Моя верификация | `driver_verifications` where `user_id = uid` (без URL документов после решения) | владелец |
@@ -613,7 +614,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 - Имена полей `snake_case`; `*_at` — всегда `timestamptz` в ISO 8601 с `Z`; деньги — целые кванзы в полях `*_kz`.
 - Пагинация — keyset по `(departure_at, id)` для поездок и по `id` для сообщений, параметр `cursor`; никакого `offset`.
-- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`, `NOT_ADMIN`, `TRIP_CLOSED`, `TRIP_HAS_BOOKINGS`, `TRIP_FIELD_LOCKED`, `NO_SHOW_WINDOW_CLOSED`, `NO_SHOW_NEEDS_PIN`, `DISPUTE_OUTCOME_INVALID`, `DISPUTE_AMOUNT_INVALID`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
+- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`, `NOT_ADMIN`, `TRIP_CLOSED`, `TRIP_HAS_BOOKINGS`, `TRIP_FIELD_LOCKED`, `NO_SHOW_WINDOW_CLOSED`, `NO_SHOW_NEEDS_PIN`, `DISPUTE_OUTCOME_INVALID`, `DISPUTE_AMOUNT_INVALID`, `MESSAGE_EMPTY`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `REVIEW_WINDOW_CLOSED`, `REVIEW_DUPLICATE`, `RATING_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `AMOUNT_INVALID`, `PAYOUT_PENDING`, `PAYOUT_CLOSED`, `PAYOUT_STATUS_INVALID`, `PAYOUT_NOT_FOUND`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`, `VERIFICATION_CLOSED`, `REASON_REQUIRED`, `HAS_ACTIVE_BOOKINGS`, `BALANCE_NOT_ZERO`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
 - Телефон во всех ответах — только через `reveal_contact`, в формате E.164; кнопка «Позвонить» — `tel:`, никаких `wa.me`.
 - Версионирование — views не ломаются: новые поля добавляются, старые не удаляются и не переименовываются минимум 2 релиза Flutter (магазины обновляют пользователей медленно).
 
@@ -626,7 +627,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Таблица | select | insert / update / delete |
 | --- | --- | --- |
 | `profiles` | свой — полностью; чужой — через `profiles_public` | update своего, кроме защищённых полей (триггер) |
-| `driver_verifications` | владелец — свои (URL документов только пока `pending`); admin — все | только RPC; Storage-бакет `verifications` — private, upload владельцем, чтение admin |
+| `driver_verifications` | владелец — свои (URL документов только пока `pending`); admin — все | только RPC; Storage-бакет `verifications` — private, upload владельцем в `<uid>/…`, чтение владельцем и admin. Бакеты `avatars` и `vehicles` — public на чтение, запись владельцем в `<uid>/…`; лимит 5 MiB, только изображения (для верификации ещё PDF) |
 | `vehicles` | владелец; публично — через `trips_public` (марка, цвет) | владелец, через RPC |
 | `places` | все | только admin |
 | `trips` | владелец; публично — `trips_public` | только RPC |
@@ -684,7 +685,8 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `booking_cancelled_by_passenger` | водитель | push | «Ana R. отменила, место снова свободно» |
 | `booking_cancelled_by_driver` / `trip_cancelled` | пассажир | push + SMS | «Поездка отменена, полный возврат. Поездки на эту дату →» |
 | `refund_done` | пассажир | push | «8 000 Kz возвращены» |
-| `new_message` | получатель | push | превью текста, deep link в чат |
+| `new_message` | получатель | push | превью текста (уже замаскированного), deep link в чат; не шлётся, если получатель был в чате < 60 с назад |
+| `report_opened`, `payout_requested`, `verification_submitted` | admin | in-app | очередь модерации; Telegram-бот I4 читает её из `notifications` |
 | `trip_reminder_24h` | все стороны | push | водителю — «подтвердите, что едете» (кнопка); пассажиру — время и место |
 | `trip_reminder_6h` / `driver_unconfirmed` | водитель / пассажиры | push / SMS | в −6 ч без подтверждения: водителю последнее напоминание; пассажиру «водитель не подтвердил, можно отменить бесплатно» |
 | `booking_expired` | пассажир | push / SMS | «Водитель не ответил, 8 000 Kz возвращаются» |

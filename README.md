@@ -105,6 +105,7 @@ supabase/
     20261110000005_booking_core.sql  брони и платежи: request/retry/confirm/respond/cancel, ledger
     20261110000006_trip_lifecycle.sql  PIN, подтверждение, no-show, споры, отмена поездки, update/return
     20261110000007_scheduler.sql  run_scheduler(as_of): протухания, выезд, напоминания, PIN, автозавершение, чистка, сверка; pg_cron
+    20261110000008_chat_payouts_misc.sql  чат и маскирование, отзывы, жалобы, выплаты, верификация, delete_me, Storage
   seed.sql
   tests/                        pgTAP
   functions/                    Edge Functions (I1)
@@ -131,11 +132,15 @@ CLAUDE.md                       контекст для Claude Code
 
 `run_scheduler(as_of)` в `pg_cron` каждые 5 минут: 14 шагов по таблице cron раздела 6, каждый в своём блоке ошибок, журнал в `scheduler_jobs`. Тихие часы в `notify()`. Очередь возвратов для Edge: view `pending_refunds`. План и решения: `docs/plans/0007_scheduler.md`.
 
+## I1, шаг 4: чат, выплаты, остальное (0008)
+
+`send_message`, `mark_read`, `reveal_contact`, `submit_review`, `report_user`, `request_payout`, `mark_payout`, `submit_verification`, `review_verification`, `delete_me`; триггер маскирования с автожалобой `cash_offer`; бакеты `avatars`, `vehicles`, `verifications`. После 0008 все RPC раздела 6 ТЗ имеют тела. План и решения: `docs/plans/0008_chat_payouts_misc.md`.
+
 Локально cron тикает в контейнере базы; вручную: `select public.run_scheduler();` или с подменой времени `select public.run_scheduler(now() + interval '1 day');`.
 
-## Что дальше (I1)
+## Что дальше (I1, шаг 5)
 
-Тела RPC из раздела 6 ТЗ, ledger-операции, cron (`run_scheduler`), Edge Functions `payments-*`, `send-sms`, `notify`, `auth-hook`. Первое сообщение для Claude Code — в `NEXT.md`.
+Edge Functions: `payments-init`, `payments-webhook`, `payments-status`, `payments-refund` против мока шлюза, `send-sms`, `notify`, `auth-hook`; `pg_cron` + `pg_net` для их вызова по расписанию. SQL-часть I1 закрыта миграциями 0005–0008.
 
 ## Облако
 

@@ -18,7 +18,7 @@ Boleia — сервис междугородних попуток в Ангол�
 
 Миграции `0001–0004` подняты и проверены: схема, views, RLS, рабочие RPC (`search_trips`, `upsert_profile`, `upsert_vehicle`, `publish_trip`, `price_hint`, `register_device`, `mark_notifications_read`). Остальные RPC — заглушки с окончательными сигнатурами, бросают `BOLEIA_NOT_IMPLEMENTED`. Seed и тесты в `supabase/seed.sql`, `supabase/tests/`.
 
-I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`), `0006_trip_lifecycle` (PIN, подтверждение, споры, отмена поездки, `update_trip`, `create_return_trip`), `0007_scheduler` (`run_scheduler(as_of)`, pg_cron, тихие часы, `pending_refunds`); решения в `docs/plans/000N_*.md`. Дальше: `0008` чат и выплаты, Edge Functions.
+I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`), `0006_trip_lifecycle` (PIN, подтверждение, споры, отмена поездки, `update_trip`, `create_return_trip`), `0007_scheduler` (`run_scheduler(as_of)`, pg_cron, тихие часы, `pending_refunds`), `0008_chat_payouts_misc` (чат с маскированием, отзывы, жалобы, выплаты, верификация, `delete_me`, Storage-бакеты); решения в `docs/plans/000N_*.md`. Все RPC раздела 6 имеют тела, заглушек не осталось. Дальше: Edge Functions (шаг 5 `NEXT.md`).
 
 ## Архитектура — правила, которые не обсуждаются
 
