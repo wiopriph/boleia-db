@@ -18,7 +18,7 @@ Boleia — сервис междугородних попуток в Ангол�
 
 Миграции `0001–0004` подняты и проверены: схема, views, RLS, рабочие RPC (`search_trips`, `upsert_profile`, `upsert_vehicle`, `publish_trip`, `price_hint`, `register_device`, `mark_notifications_read`). Остальные RPC — заглушки с окончательными сигнатурами, бросают `BOLEIA_NOT_IMPLEMENTED`. Seed и тесты в `supabase/seed.sql`, `supabase/tests/`.
 
-I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`), `0006_trip_lifecycle` (PIN, подтверждение, споры, отмена поездки, `update_trip`, `create_return_trip`), `0007_scheduler` (`run_scheduler(as_of)`, pg_cron, тихие часы, `pending_refunds`), `0008_chat_payouts_misc` (чат с маскированием, отзывы, жалобы, выплаты, верификация, `delete_me`, Storage-бакеты); решения в `docs/plans/000N_*.md`. Все RPC раздела 6 имеют тела, заглушек не осталось. Дальше: Edge Functions (шаг 5 `NEXT.md`).
+I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`), `0006_trip_lifecycle` (PIN, подтверждение, споры, отмена поездки, `update_trip`, `create_return_trip`), `0007_scheduler` (`run_scheduler(as_of)`, pg_cron, тихие часы, `pending_refunds`), `0008_chat_payouts_misc` (чат с маскированием, отзывы, жалобы, выплаты, верификация, `delete_me`, Storage-бакеты); решения в `docs/plans/000N_*.md`. `0009_edge_support` + `supabase/functions/` (payments-*, notify, send-sms, мок шлюза, Auth hooks как pg-functions, `edge_call` через pg_net + Vault). I1 закрыт: все RPC раздела 6 имеют тела, smoke `scripts/edge-smoke.sh` проходит против мока. Контракт шлюза: `docs/gateway-contract.md`.
 
 ## Архитектура — правила, которые не обсуждаются
 
@@ -68,3 +68,5 @@ I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, п�
 - Непонятно или ТЗ противоречит само себе — остановись и спроси, с цитатой из ТЗ.
 - Новая таблица / смена enum / новый RPC — сначала план, потом код.
 - После миграции: `supabase db reset` → `supabase test db` → `supabase gen types`.
+- После `supabase db reset` локальный Vault пуст: `scripts/dev-vault.sh`, иначе cron не дозовётся до Edge (тесты этого не требуют).
+- GoTrue хранит телефоны без `+`, `profiles.phone` в E.164; в seed `auth.users` номера без `+`. Сравнивать номера только через `same_phone()`.

@@ -221,15 +221,21 @@ max_frequency = "5s"
 # Force log out if the user has been inactive longer than the specified duration.
 # inactivity_timeout = "8h"
 
-# This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+# Забаненные номера не регистрируются (ТЗ раздел 8); функция в миграции 0009
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/before_user_created_hook"
 
-# This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
-# [auth.hook.custom_access_token]
+# role = admin в JWT для profiles.is_admin (ТЗ раздел 8); функция в миграции 0009
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+# Send SMS Hook -> Edge send-sms -> castbrick. Включать, когда есть ключ castbrick и секрет хука:
+# [auth.hook.send_sms]
 # enabled = true
-# uri = "pg-functions://<database>/<schema>/<hook_name>"
+# uri = "http://host.docker.internal:54321/functions/v1/send-sms"
+# secrets = "env(SEND_SMS_HOOK_SECRET)"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 # Placeholder provider: CLI 3.x disables phone login without one. Real SMS go via send-sms (I1).
@@ -306,6 +312,14 @@ enabled = false
 enabled = false
 # Obtain from https://clerk.com/setup/supabase
 # domain = "example.clerk.accounts.dev"
+
+# Без JWT: вебхук шлюза, мок шлюза, Auth hook (у них свои подписи)
+[functions.payments-webhook]
+verify_jwt = false
+[functions.payments-mock]
+verify_jwt = false
+[functions.send-sms]
+verify_jwt = false
 
 [edge_runtime]
 enabled = true

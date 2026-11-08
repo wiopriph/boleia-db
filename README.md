@@ -106,9 +106,12 @@ supabase/
     20261110000006_trip_lifecycle.sql  PIN, подтверждение, no-show, споры, отмена поездки, update/return
     20261110000007_scheduler.sql  run_scheduler(as_of): протухания, выезд, напоминания, PIN, автозавершение, чистка, сверка; pg_cron
     20261110000008_chat_payouts_misc.sql  чат и маскирование, отзывы, жалобы, выплаты, верификация, delete_me, Storage
+    20261110000009_edge_support.sql  сервисные RPC для Edge, Auth hooks (pg-functions), edge_call через pg_net + Vault
   seed.sql
   tests/                        pgTAP
-  functions/                    Edge Functions (I1)
+  functions/                    Edge Functions: payments-*, notify, send-sms, payments-mock; _shared/
+scripts/                        dev-vault.sh, edge-smoke.sh
+docs/gateway-contract.md        контракт шлюза, под него написан мок и адаптер
 docs/spec.md                    ТЗ
 CLAUDE.md                       контекст для Claude Code
 ```
@@ -136,11 +139,15 @@ CLAUDE.md                       контекст для Claude Code
 
 `send_message`, `mark_read`, `reveal_contact`, `submit_review`, `report_user`, `request_payout`, `mark_payout`, `submit_verification`, `review_verification`, `delete_me`; триггер маскирования с автожалобой `cash_offer`; бакеты `avatars`, `vehicles`, `verifications`. После 0008 все RPC раздела 6 ТЗ имеют тела. План и решения: `docs/plans/0008_chat_payouts_misc.md`.
 
+## I1, шаг 5: Edge Functions (0009 + functions/)
+
+`payments-init`, `payments-webhook`, `payments-status`, `payments-refund`, `payments-mock`, `notify`, `send-sms`; сервисные RPC `payment_initiated`, `payment_refund_result`, `notification_delivered`; Auth hooks как Postgres-функции; `edge_call` через `pg_net` с ключом в Vault. Сквозная проверка: `supabase functions serve` в одном терминале, `scripts/edge-smoke.sh` в другом. План и решения: `docs/plans/0009_edge_functions.md`, контракт шлюза: `docs/gateway-contract.md`.
+
 Локально cron тикает в контейнере базы; вручную: `select public.run_scheduler();` или с подменой времени `select public.run_scheduler(now() + interval '1 day');`.
 
-## Что дальше (I1, шаг 5)
+## Что дальше
 
-Edge Functions: `payments-init`, `payments-webhook`, `payments-status`, `payments-refund` против мока шлюза, `send-sms`, `notify`, `auth-hook`; `pg_cron` + `pg_net` для их вызова по расписанию. SQL-часть I1 закрыта миграциями 0005–0008.
+I1 закрыт. Следующие итерации по разделу 13 ТЗ: клиенты (web на Nuxt, Flutter), затем I4 — Telegram-бот модерации, реальные ключи castbrick/FCM и договор со шлюзом (адаптер в `functions/_shared/gateway.ts`).
 
 ## Облако
 

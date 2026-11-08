@@ -90,15 +90,15 @@ insert into auth.users (
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
   confirmation_token, recovery_token, email_change_token_new, email_change, email_change_token_current, phone_change, phone_change_token, reauthentication_token
 ) values
-  ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '+244900000001', now(), '',
+  ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '244900000001', now(), '',
    '{"provider":"phone","providers":["phone"],"role":"admin"}', '{"display_name":"Admin B."}', now(), now(), '', '', '', '', '', '', '', ''),
-  ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '+244900000002', now(), '',
+  ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '244900000002', now(), '',
    '{"provider":"phone","providers":["phone"]}', '{"display_name":"João M."}', now(), now(), '', '', '', '', '', '', '', ''),
-  ('33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '+244900000003', now(), '',
+  ('33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '244900000003', now(), '',
    '{"provider":"phone","providers":["phone"]}', '{"display_name":"Teresa S."}', now(), now(), '', '', '', '', '', '', '', ''),
-  ('44444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '+244900000004', now(), '',
+  ('44444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '244900000004', now(), '',
    '{"provider":"phone","providers":["phone"]}', '{"display_name":"Pedro K."}', now(), now(), '', '', '', '', '', '', '', ''),
-  ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '+244900000005', now(), '',
+  ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '244900000005', now(), '',
    '{"provider":"phone","providers":["phone"]}', '{"display_name":"Ana R."}', now(), now(), '', '', '', '', '', '', '', '');
 
 -- профили: водители João, Teresa, Pedro; пассажир Ana; админ

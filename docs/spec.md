@@ -568,14 +568,16 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 **Edge Functions**
 
-- `payments-init(booking_id)` — вызывается клиентом через `functions.invoke` после `request_booking`; проверяет по JWT, что бронь принадлежит вызывающему и в `pending_payment`; создаёт транзакцию в шлюзе Multicaixa Express на телефон аккаунта, сохраняет `provider_ref`, возвращает клиенту данные для подтверждения (push в приложение MCX Express, QR или deep link — зависит от шлюза, см. раздел 10).
-- `payments-webhook` — endpoint для шлюза; проверяет подпись, вызывает `confirm_payment` service-ролью с телефоном плательщика из ответа шлюза, отвечает 200 всегда (идемпотентность — в SQL).
-- `payments-refund(booking_id)` — вызывается cron'ом по строкам `refunds`; идёт в шлюз, пишет `refund_ref`.
-- `payments-status(payment_id)` — опрос статуса в шлюзе; вызывается cron'ом перед протуханием и клиентом по кнопке «Проверить оплату».
-- `send-sms` — Supabase Auth Send SMS Hook: получает телефон и код OTP, отправляет через castbrick; та же функция — для SMS-уведомлений.
-- `notify` — database webhook на insert в `notifications`: FCM push или SMS через castbrick; пишет `status`, `error`; ретрай через `scheduled_for = now() + 5 min`, не более 3 раз.
+- `payments-init(booking_id)` — вызывается клиентом через `functions.invoke` после `request_booking`; проверяет по JWT, что платёж в `created` принадлежит вызывающему; создаёт транзакцию в шлюзе Multicaixa Express на телефон аккаунта (контракт — `docs/gateway-contract.md`), через RPC `payment_initiated` переводит платёж в `pending` с `provider_ref` и `expires_at = +15 мин`, возвращает клиенту `{payment_id, expires_at, instructions}` (push в приложение MCX Express, QR или deep link — зависит от шлюза, см. раздел 10). Повторный вызов возвращает прежнюю инструкцию.
+- `payments-webhook` — endpoint для шлюза без JWT; проверяет подпись `X-Gateway-Signature` (HMAC-SHA256, иначе 401), вызывает `confirm_payment` service-ролью с телефоном плательщика из ответа шлюза, отвечает 200 всегда (идемпотентность — в SQL).
+- `payments-refund` — вызывается `pg_cron` каждые 5 минут (`edge_call`); читает view `pending_refunds`, идёт в шлюз, результат пишет RPC `payment_refund_result`: `refund_ref` + `refunded_at` или `refund_attempts` +1; после трёх неудач админам `refund_manual`.
+- `payments-status` — опрос статуса в шлюзе: клиентом по кнопке «Проверить оплату» (`{payment_id}`) и `pg_cron` раз в минуту (`?sweep=1`) по `pending` с истёкшим `expires_at` — окно 5 минут до того, как `run_scheduler` протухнет платёж сам; терминальный статус → `confirm_payment`.
+- `send-sms` — Supabase Auth Send SMS Hook (standard-webhooks): получает телефон и код OTP, отправляет через castbrick. SMS-уведомления идут через `notify`, не через этот хук.
+- `notify` — доставка push (FCM HTTP v1) и SMS (castbrick) из `notifications`: триггер `notifications_dispatch` после insert зовёт её через `pg_net` для строк без `scheduled_for`, а `pg_cron` раз в минуту (`?sweep=1`) добирает отложенные (тихие часы) и повторы; результат пишет RPC `notification_delivered`: `sent`, либо `failed` после трёх попыток с интервалом 5 минут. Без ключей провайдеров работает адаптер `log` (dev). `inapp` помечается `sent` в момент записи.
 - `telegram-moderation` — webhook Telegram-бота: верификации, жалобы, споры, выплаты, ручные возвраты, алерты сверки (перенос из Ambo).
-- `auth-hook` — Custom Access Token Hook: кладёт `role = admin` в JWT для админов и отклоняет регистрацию номеров из `banned_phones`.
+- Auth hooks — не Edge, а Postgres-функции (`pg-functions://`), без сети и секретов: `custom_access_token_hook` кладёт `app_metadata.role = admin` в JWT для `profiles.is_admin` (и снимает устаревший), `before_user_created_hook` отклоняет регистрацию номеров из `banned_phones` (403).
+- `payments-mock` — dev-реализация контракта шлюза без своего состояния: статус читает из `payments`, вебхук шлёт через 5 с, сценарии `metadata.simulate` (`paid`, `failed`, `mismatch`, `silent`). Сквозной прогон — `scripts/edge-smoke.sh`.
+- Вызов Edge из базы: `edge_call(path, body)` → `pg_net` с `edge_url`/`edge_key` из Vault; без секретов (тесты, свежий dev) — тишина. Локально секреты кладёт `scripts/dev-vault.sh`.
 
 Изображения сжимаются на клиенте до загрузки в Storage (как решено для Ambo), сервер их не трогает.
 
@@ -620,7 +622,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 ## 8. Auth, доверие, безопасность
 
-Вход — только по телефону с OTP: Supabase Auth с Send SMS Hook → Edge Function `send-sms` → castbrick (тот же провайдер, что уже используется). Email и соцсети не нужны: номер — главный элемент доверия, он же плательщик в Multicaixa Express. В dev — тестовые номера Supabase без реальных SMS.
+Вход — только по телефону с OTP: Supabase Auth с Send SMS Hook → Edge Function `send-sms` → castbrick (тот же провайдер, что уже используется). GoTrue хранит номер без «+» (`244900000005`), `profiles.phone` — в E.164 (`+244900000005`): нормализует триггер `handle_new_user`; сравнения номеров через `same_phone()` по последним 9 цифрам. Email и соцсети не нужны: номер — главный элемент доверия, он же плательщик в Multicaixa Express. В dev — тестовые номера Supabase без реальных SMS.
 
 **RLS по таблицам**
 
