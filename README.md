@@ -103,6 +103,7 @@ supabase/
     20261110000003_rls.sql      политики и grants
     20261110000004_rpc.sql      RPC: рабочие + заглушки I1
     20261110000005_booking_core.sql  брони и платежи: request/retry/confirm/respond/cancel, ledger
+    20261110000006_trip_lifecycle.sql  PIN, подтверждение, no-show, споры, отмена поездки, update/return
   seed.sql
   tests/                        pgTAP
   functions/                    Edge Functions (I1)
@@ -120,6 +121,10 @@ CLAUDE.md                       контекст для Claude Code
 ## I1, шаг 1: брони и платежи (0005)
 
 `request_booking`, `retry_payment`, `confirm_payment` (service role), `respond_booking`, `cancel_booking`, `cancel_quote`; ledger-операции `payment` / `refund` / `release` / `forfeit` через единую `ledger_post` с проверкой баланса; уведомления и системные сообщения чата. План и решения: `docs/plans/0005_booking_core.md`.
+
+## I1, шаг 2: жизненный цикл поездки (0006)
+
+`enter_pin`, `confirm_trip`, `mark_no_show`, `resolve_dispute`, `confirm_trip_intent`, `cancel_trip`, `create_return_trip`, `update_trip`; финализация `complete_booking` / `settle_trip` для RPC и cron. План и решения: `docs/plans/0006_trip_lifecycle.md`.
 
 ## Что дальше (I1)
 

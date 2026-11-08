@@ -18,7 +18,7 @@ Boleia — сервис междугородних попуток в Ангол�
 
 Миграции `0001–0004` подняты и проверены: схема, views, RLS, рабочие RPC (`search_trips`, `upsert_profile`, `upsert_vehicle`, `publish_trip`, `price_hint`, `register_device`, `mark_notifications_read`). Остальные RPC — заглушки с окончательными сигнатурами, бросают `BOLEIA_NOT_IMPLEMENTED`. Seed и тесты в `supabase/seed.sql`, `supabase/tests/`.
 
-I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`; решения в `docs/plans/0005_booking_core.md`). Дальше: `0006` жизненный цикл поездки, `0007` cron, `0008` чат и выплаты, Edge Functions.
+I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`), `0006_trip_lifecycle` (PIN, подтверждение, споры, отмена поездки, `update_trip`, `create_return_trip`); решения в `docs/plans/000N_*.md`. Дальше: `0007` cron (`run_scheduler`), `0008` чат и выплаты, Edge Functions.
 
 ## Архитектура — правила, которые не обсуждаются
 
