@@ -102,6 +102,7 @@ supabase/
     20261110000002_views.sql    trips_public, profiles_public, my_*, driver_wallet, route_stats
     20261110000003_rls.sql      политики и grants
     20261110000004_rpc.sql      RPC: рабочие + заглушки I1
+    20261110000005_booking_core.sql  брони и платежи: request/retry/confirm/respond/cancel, ledger
   seed.sql
   tests/                        pgTAP
   functions/                    Edge Functions (I1)
@@ -115,6 +116,10 @@ CLAUDE.md                       контекст для Claude Code
 - RLS: клиенты пишут только через RPC; `profiles` — column-level update своих полей; `payments.raw_*` не отдаются.
 - RPC: `search_trips` (анонимам тоже), `upsert_profile`, `upsert_vehicle`, `publish_trip`, `price_hint`, `register_device`, `mark_notifications_read`.
 - Остальные RPC объявлены с окончательными сигнатурами и бросают `BOLEIA_NOT_IMPLEMENTED`.
+
+## I1, шаг 1: брони и платежи (0005)
+
+`request_booking`, `retry_payment`, `confirm_payment` (service role), `respond_booking`, `cancel_booking`, `cancel_quote`; ledger-операции `payment` / `refund` / `release` / `forfeit` через единую `ledger_post` с проверкой баланса; уведомления и системные сообщения чата. План и решения: `docs/plans/0005_booking_core.md`.
 
 ## Что дальше (I1)
 

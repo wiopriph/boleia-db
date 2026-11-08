@@ -251,9 +251,9 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | provider\_ref | text unique | id транзакции у шлюза; ключ идемпотентности вебхука |
 | status | enum `payment_status` | `created`, `pending`, `paid`, `failed`, `expired`, `refunded`, `partially_refunded` |
 | refund\_kz | integer | — |
-| refund\_ref | text | id возврата у шлюза |
+| refund\_ref | text | id возврата у шлюза. `refund_kz > 0 and refund_ref is null` = возврат ожидает отправки в шлюз (cron -> `payments-refund`) |
 | raw\_request, raw\_webhook | jsonb | что отправили и что пришло — для споров с шлюзом |
-| expires\_at | timestamptz | `created + 15 мин`; MCX Express даёт клиенту 90 с на подтверждение, остальное — наш запас |
+| expires\_at | timestamptz | `created + 15 мин`, ставится уже в `request_booking`, чтобы бронь без `payments-init` не держала место; MCX Express даёт клиенту 90 с на подтверждение, остальное — наш запас |
 | paid\_at, refunded\_at | timestamptz | — |
 
 ### ledger\_entries
@@ -263,7 +263,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | id | bigint identity | — |
 | booking\_id | uuid, nullable | — |
 | payout\_id | uuid, nullable | — |
-| account | enum `ledger_account` | `passenger_escrow`, `driver_balance`, `platform_fee`, `refunds`, `gateway_fees`, `cash_out` |
+| account | enum `ledger_account` | `cash_in`, `passenger_escrow`, `driver_balance`, `platform_fee`, `refunds`, `gateway_fees`, `cash_out`. `cash_in` - деньги пришли от шлюза, зеркало `refunds`/`cash_out`; баланс расчётного счёта платформы = `-(cash_in) - refunds - cash_out` |
 | user\_id | uuid, nullable | для `driver_balance` — чей |
 | amount\_kz | integer | + дебет / − кредит; сумма по операции = 0 |
 | op\_id | uuid | группирует строки одной операции |
@@ -460,6 +460,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Кто | Когда | Возврат пассажиру (от уплаченной суммы = цена + комиссия) | Счётчик |
 | --- | --- | --- | --- |
 | Водитель отклонил / не ответил (24 ч или до `departure_at − 1 ч`) | — | 100 % | — |
+| Пассажир снял запрос, бронь ещё `requested` | — | 100 % минус комиссия шлюза; штраф 50 % только за принятую бронь | `cancels_total` +1 |
 | Водитель отменил поездку или одну бронь | > 24 ч до выезда | 100 % | `cancels_total` +1 |
 | Водитель отменил поездку или одну бронь | < 24 ч | 100 % | `cancels_total` +1 |
 | Водитель не подтвердил поездку к `departure_at − 6 ч` | — | пассажир может отменить сам, 100 % | — |
@@ -492,11 +493,12 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `update_trip(trip_id, payload)` | водитель | цена/места/заметки — только пока нет оплаченных броней; время — до первой брони; `booking_mode` — в любой момент, действует на новые брони |
 | `confirm_trip_intent(trip_id)` | водитель | ответ на напоминание −24 ч: ставит `driver_confirmed_at`; без него к −6 ч пассажирам открывается бесплатная отмена |
 | `cancel_trip(trip_id, reason)` | водитель | каскад по броням с возвратами, `cancels_total` +1 |
-| `request_booking(trip_id, seats, message)` | пассажир | атомарно: проверка мест, статуса профиля и поездки (`published`, до `departure_at − 1 ч`), резерв места, бронь `pending_payment`, запись `payments(created)`; возвращает `booking_id` + `payment_id` для `payments-init` |
+| `request_booking(trip_id, seats, message)` | пассажир | атомарно: проверка мест, статуса профиля и поездки (`published`, до `departure_at − 1 ч`), резерв места, бронь `pending_payment`, запись `payments(created, expires_at = +15 мин)`; лимит 3 активные брони (`BOOKING_LIMIT_REACHED`); `restricted` не может; возвращает `booking_id` + `payment_id` + суммы для `payments-init` |
 | `retry_payment(booking_id)` | пассажир | из `payment_failed`, если места ещё есть и поездка открыта: новый резерв, новая строка `payments`, бронь снова `pending_payment`; не больше 3 попыток на бронь |
-| `confirm_payment(payment_id, provider_ref, status, payer_phone, raw)` | только Edge `payments-webhook` (service role) | идемпотентно по `provider_ref`; `paid` и телефон совпал → ledger `escrow +`, чат найден или создан с `booking_id`, затем по `booking_mode`: instant → `accepted` + PIN + системное сообщение «Lugar confirmado»; approval → `requested`, водителю уведомление; `paid` и телефон не совпал → `payment_failed` + автоматический полный возврат; `failed` → `payment_failed`, место назад |
+| `confirm_payment(payment_id, provider_ref, status, payer_phone, raw)` | только Edge `payments-webhook` (service role) | идемпотентно по `provider_ref`; `paid` и телефон совпал → ledger `escrow +`, чат найден или создан с `booking_id`, затем по `booking_mode`: instant → `accepted` + PIN + системное сообщение «Lugar confirmado»; approval → `requested`, водителю уведомление; `paid` и телефон не совпал → `payment_failed` + автоматический полный возврат; `paid`, а бронь уже не `pending_payment` (протухла, поездка закрыта) → полный возврат, бронь не трогается, пассажиру `refund_done`; `failed`/`expired` → `payment_failed`, место назад |
 | `respond_booking(booking_id, accept, reason)` | водитель, только для approval-поездок | accept → `accepted` + pin; decline → `declined` + возврат (ledger `escrow − / refunds +`, задача на refund в шлюз) |
-| `cancel_booking(booking_id, reason)` | пассажир или водитель | `cancelled_by`, возврат по таблице раздела 5 (сумма показывается до подтверждения), место назад, `cancels_total` +1 |
+| `cancel_quote(booking_id)` | пассажир или водитель | сумма возврата, удержание и правило по таблице раздела 5 для показа на экране отмены до подтверждения; та же функция `refund_rule`, что и в `cancel_booking` |
+| `cancel_booking(booking_id, reason)` | пассажир или водитель | `cancelled_by`, возврат по таблице раздела 5, место назад, `cancels_total` +1 где положено; водитель на бронь в `requested` = отказ (`declined`, без санкции); из `pending_payment` нельзя (`PAYMENT_PENDING`), после `departed` нельзя (`TOO_LATE_TO_CANCEL`) |
 | `enter_pin(booking_id, pin)` | водитель | только в `accepted`/`awaiting_confirm`, окно от `departure_at − 3 ч` до `departure_at + 24 ч`; ставит `pin_entered_at`; 5 неверных → блок на 10 мин |
 | `confirm_trip(booking_id, happened bool)` | пассажир | true → `completed` + ledger `escrow − / driver_balance + / platform_fee +`; false → `disputed` |
 | `mark_no_show(booking_id)` | водитель | только из `awaiting_confirm`, в первые 48 ч, и только если по этой поездке введён PIN хотя бы одного другого пассажира; поездка с единственным пассажиром без PIN → `disputed`, решает модератор по чату |
@@ -521,7 +523,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 - `messages` before insert → маскирование `+244\d{9}`, `9\d{8}`, `wa.me`, `http` до `departure_at − 2 ч`; `masked = true`; 3 замаскированных сообщения от одного пользователя → `reports(cash_offer)` автоматически.
 - `reviews` after insert → пересчёт `profiles.rating_avg`, `rating_count`; `is_visible`, если второй отзыв уже есть.
 - `bookings` → `completed` → инкремент `trips_driven` / `trips_ridden`.
-- Любой переход статуса в `trips`/`bookings`/`payments`/`driver_verifications` → insert в `notifications`.
+- Уведомления о переходах статусов пишут сами RPC и cron через `notify()` (inapp всегда, плюс push при живом токене, иначе SMS, если событие это допускает). Общего триггера нет: тексты и адресаты у каждого перехода разные. Инвариант "каждый переход пишет уведомление" проверяют тесты.
 - `profiles` before update → запрет менять `is_admin`, `status`, `driver_status`, `rating_*`, `balance_kz` не из `security definer`-функций.
 - `auth.users` after insert → создание строки в `profiles` с телефоном.
 
@@ -529,7 +531,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 | Задача | Когда | Действие |
 | --- | --- | --- |
-| Протухание платежей | `payments.expires_at` прошёл, статус `pending` | запрос статуса в шлюз (`payments-status`, вебхук мог потеряться); если не оплачено → `payment_failed`, место назад |
+| Протухание платежей | `payments.expires_at` прошёл, статус `created` или `pending` | запрос статуса в шлюз (`payments-status`, вебхук мог потеряться); если не оплачено → `payment_failed`, место назад |
 | Протухание запросов | `requested` старше 24 ч **или** `departure_at − 1 ч` наступил | → `expired`, полный возврат |
 | Напоминание −24 ч | `departure_at − 24 ч` | водителю — «подтвердите, что едете» (`confirm_trip_intent`); пассажирам — время и место |
 | Водитель не подтвердил | `departure_at − 6 ч`, нет `driver_confirmed_at` | пассажирам уведомление «водитель не подтвердил, можно отменить бесплатно»; водителю — последнее напоминание |
@@ -594,7 +596,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 - Имена полей `snake_case`; `*_at` — всегда `timestamptz` в ISO 8601 с `Z`; деньги — целые кванзы в полях `*_kz`.
 - Пагинация — keyset по `(departure_at, id)` для поездок и по `id` для сообщений, параметр `cursor`; никакого `offset`.
-- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`. Клиенты мапят код на текст pt-AO локально.
+- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
 - Телефон во всех ответах — только через `reveal_contact`, в формате E.164; кнопка «Позвонить» — `tel:`, никаких `wa.me`.
 - Версионирование — views не ломаются: новые поля добавляются, старые не удаляются и не переименовываются минимум 2 релиза Flutter (магазины обновляют пользователей медленно).
 
@@ -638,7 +640,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 - Лимиты одинаковые для всех водителей: 5 активных поездок, до 4 мест в поездке. Пассажир: 3 активные брони (туда, обратно и ещё одна). Верификация лимиты не меняет.
 - `request_booking` — 10 в сутки; `publish_trip` — 5 в сутки; `send_message` — 60 в минуту; `enter_pin` — 5 ошибок → 10 минут блока.
-- Один номер телефона = один аккаунт; при бане — номер в `banned_phones`, повторная регистрация невозможна. Номер плательщика в MCX Express должен совпадать с номером аккаунта: `payments-init` передаёт номер аккаунта шлюзу, а `confirm_payment` сверяет номер из вебхука; несовпадение — автоматический полный возврат (комиссию шлюза платит платформа) и предупреждение на экране; 3 несовпадения → `restricted`.
+- Один номер телефона = один аккаунт; при бане — номер в `banned_phones`, повторная регистрация невозможна. Номер плательщика в MCX Express должен совпадать с номером аккаунта: `payments-init` передаёт номер аккаунта шлюзу, а `confirm_payment` сверяет номер из вебхука; несовпадение — автоматический полный возврат (комиссию шлюза платит платформа) и предупреждение на экране; 3 несовпадения → `restricted`. `restricted` запрещает только `request_booking` и `retry_payment` (`PROFILE_RESTRICTED`); чат, поездки водителя, кошелёк и профиль работают до решения модератора.
 - Чат: маскирование телефонов и ссылок до `departure_at − 2 ч`, включая всю переписку до оплаты; 3 замаскированных сообщения → автожалоба `cash_offer`; лимиты на чаты без брони; модератор видит чат по жалобе. Метрика в дашборде: доля чатов, не закончившихся оплаченной бронью — рост выше 60 % = сделки уходят в наличку.
 - Выплаты: любому водителю, только на `payout_method`, заполненный до первой поездки; смена `payout_method` замораживает выплаты на 48 ч и шлёт SMS на номер аккаунта.
 - Поиск для анонимов — rate limit на уровне Supabase API gateway + капча на web после 50 поисков/час с IP.
@@ -658,7 +660,8 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | --- | --- | --- | --- |
 | `payment_pending` | пассажир | push | «Подтвердите оплату 8 000 Kz в Multicaixa Express в течение 15 мин» |
 | `payment_failed` | пассажир | push / SMS | «Оплата не прошла, место освобождено. Попробовать снова →» |
-| `booking_requested` | водитель | push / SMS | «Ana R. оплатила 2 места Luanda → Benguela 12 ноя. Ответьте за 24 ч» |
+| `booking_requested` | водитель | push / SMS | «Ana R. оплатила 2 места Luanda → Benguela 12 ноя. Ответьте за 24 ч» (approval) |
+| `booking_confirmed` | водитель | push / SMS | «Ana R. забронировала 2 места Luanda → Benguela 12 ноя, оплата прошла» (instant) |
 | `booking_accepted` | пассажир | push / SMS | «Принято. PIN и телефон водителя придут за 2 ч до выезда» |
 | `booking_declined` / `booking_expired` | пассажир | push / SMS | «Не принято, 8 000 Kz возвращаются на карту за 1–3 дня. Другие поездки →» |
 | `booking_cancelled_by_passenger` | водитель | push | «Ana R. отменила, место снова свободно» |
@@ -691,17 +694,18 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 **Флоу оплаты**
 
-1. `request_booking` → бронь `pending_payment`, место зарезервировано, `payments(created)`.
+1. `request_booking` → бронь `pending_payment`, место зарезервировано, `payments(created, expires_at = +15 мин)`.
 2. Клиент → `payments-init` → шлюз создаёт транзакцию на номер аккаунта → `payments(pending)`, `expires_at = +15 мин`.
 3. Пассажир подтверждает в MCX Express (push на телефон или QR на web).
-4. Шлюз → `payments-webhook` → `confirm_payment(paid, payer_phone)`: номер совпал → бронь `requested`, ledger `passenger_escrow +amount`, чат найден или создан, водителю уведомление; не совпал → `payment_failed`, автоматический полный возврат, предупреждение пассажиру.
-5. Нет подтверждения за 15 мин → cron опрашивает `payments-status` → `payment_failed`, место назад; пассажир может нажать «Попробовать снова» (`retry_payment`, до 3 раз).
+4. Шлюз → `payments-webhook` → `confirm_payment(paid, payer_phone)`: номер совпал → ledger `cash_in −amount / passenger_escrow +amount`, чат найден или создан, бронь `accepted` (instant) или `requested` (approval), уведомления; не совпал → `payment_failed`, автоматический полный возврат, предупреждение пассажиру; бронь уже не `pending_payment` (вебхук опоздал) → полный возврат, бронь не трогается.
+5. Нет подтверждения за 15 мин (платёж в `created` или `pending`) → cron опрашивает `payments-status` → `payment_failed`, место назад; пассажир может нажать «Попробовать снова» (`retry_payment`, до 3 раз).
 
 **Движение денег в ledger** (пример: цена 7 000 Kz, комиссия платформы 10 % сверху, но не меньше 1 000 Kz за бронь → 1 000; пассажир платит 8 000)
 
 | Момент | Операция | Строки |
 | --- | --- | --- |
-| Оплата прошла | `payment:<id>` | `passenger_escrow +8 000` |
+| Оплата прошла | `payment:<id>` | `cash_in −8 000`, `passenger_escrow +8 000` |
+| Оплата опоздала (бронь уже `payment_failed`) или номер не совпал | `payment:<id>` + `refund:<booking>` | `cash_in −8 000`, `passenger_escrow +8 000`, затем `passenger_escrow −8 000`, `refunds +8 000` |
 | Поездка подтверждена | `release:<booking>` | `passenger_escrow −8 000`, `driver_balance +7 000`, `platform_fee +1 000` |
 | Отказ водителя / отмена водителем / отмена пассажиром > 24 ч | `refund:<booking>` | `passenger_escrow −8 000`, `refunds +8 000` → `payments-refund` (при отмене пассажиром минус комиссия шлюза) |
 | Отмена пассажиром < 24 ч, шаг 1 — сразу | `refund:<booking>` | `passenger_escrow −4 000`, `refunds +4 000`; остальные 4 000 остаются в эскроу |
@@ -709,9 +713,10 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Отмена пассажиром < 24 ч, шаг 2 — поездка не состоялась | `forfeit:<booking>` | `passenger_escrow −4 000`, `platform_fee +4 000` |
 | Спор решён частично | `release:<booking>` + `refund:<booking>` | возврат пассажиру N, остаток водителю минус комиссия |
 | Вывод водителем | `payout:<id>` | `driver_balance −N`, `cash_out +N` |
+| Отмена пассажиром > 24 ч, комиссия шлюза X за счёт пассажира | `refund:<booking>` | `passenger_escrow −8 000`, `refunds +(8 000 − X)`, `gateway_fees +X` |
 | Комиссия шлюза (если списывается с нас) | `gateway:<payment>` | `platform_fee −X`, `gateway_fees +X` |
 
-Сумма строк одной операции всегда 0; `platform_fee` — выручка; `passenger_escrow` — обязательства перед пассажирами; `driver_balance` — обязательства перед водителями. Бухгалтеру раз в месяц уходит выгрузка.
+Сумма строк одной операции всегда 0 (проверяет `ledger_post`, единственная точка записи); `cash_in` — приход от шлюза; `platform_fee` — выручка; `passenger_escrow` — обязательства перед пассажирами; `driver_balance` — обязательства перед водителями. Комиссия шлюза X считается функцией `gateway_fee_kz(amount)`: до договора со шлюзом возвращает 0, меняется одной строкой. Бухгалтеру раз в месяц уходит выгрузка.
 
 **Комиссия** — решено: 10 % сверху с пассажира, минимум 1 000 Kz; минимум считается один раз на бронь, сколько бы мест в ней ни было (4 × 7 000 = 28 000 → 2 800; 2 × 3 000 = 6 000 → 1 000; 1 × 7 000 → 1 000). Водитель получает ровно свою цену. На экране — отдельной строкой «Taxa de serviço». Следствие для дешёвых броней: при 3 000 Kz комиссия составит 33 %, при 7 000 — 14 %; минимум бьёт по коротким поездкам с одним местом, и это надо видеть в конверсии по маршрутам.
 
