@@ -582,6 +582,66 @@ Admin: одобрить или отклонить с причиной.
 
 role = admin в JWT. Используется в RLS.
 
+### `admin_search_users(q text, lim integer DEFAULT 20)`
+
+Возвращает `SETOF jsonb`. Кто: authenticated.
+
+Admin: поиск по телефону (цифры, + и пробелы игнорируются), имени или id; карточка пользователя одним вызовом.
+
+### `admin_moderate(target_id uuid, action mod_action, reason text, days integer DEFAULT NULL::integer, report_id uuid DEFAULT NULL::uuid)`
+
+Возвращает `void`. Кто: authenticated.
+
+Admin: warn | restrict | suspend (days) | ban | unban; пишет moderation_actions, цели moderation_action; с report_id жалоба -> actioned.
+
+### `admin_resolve_report(report_id uuid, outcome text, note text DEFAULT NULL::text)`
+
+Возвращает `void`. Кто: authenticated.
+
+Admin: reviewed (в работе) | dismissed.
+
+### `admin_cancel_trip(trip_id uuid, reason text)`
+
+Возвращает `jsonb`. Кто: authenticated.
+
+Admin: скрыть поездку = отмена платформой, возвраты 100 %, без cancels_total водителю. -> {cancelled_bookings, refunded_kz}.
+
+### `admin_cancel_booking(booking_id uuid, reason text)`
+
+Возвращает `jsonb`. Кто: authenticated.
+
+Admin: отмена одной брони платформой, возврат 100 %, счётчики сторон не меняются. -> {status, refund_kz}.
+
+### `admin_mark_refund_manual(payment_id uuid, ref text, note text DEFAULT NULL::text)`
+
+Возвращает `jsonb`. Кто: authenticated.
+
+Admin: возврат сделан вручную переводом (ref), закрывает очередь refund_manual.
+
+### `admin_upsert_place(payload jsonb)`
+
+Возвращает `uuid`. Кто: authenticated.
+
+Admin: payload {id?, name, province, slug, kind, lat, lng, aliases[], is_active}; slug уникален.
+
+### `admin_merge_places(from_id uuid, into_id uuid)`
+
+Возвращает `void`. Кто: authenticated.
+
+Admin: слить дубль from_id в into_id (поездки, route_durations, алиасы), from деактивируется.
+
+### `admin_stats()`
+
+Возвращает `jsonb`. Кто: authenticated.
+
+Admin: {queues, today, week, health} для дашборда.
+
+### `admin_weekly(weeks integer DEFAULT 8)`
+
+Возвращает `SETOF jsonb`. Кто: authenticated.
+
+Admin: по неделям воронка, GMV, fee, возвраты, отмены по сторонам, время ответа водителя и верификации, top_routes.
+
 
 ## RPC только для service role (Edge Functions, cron)
 

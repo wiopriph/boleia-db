@@ -65,6 +65,16 @@ RPC_DOC = {
     "mark_notifications_read": "Отметить in-app уведомления прочитанными.",
     "delete_me": "Удалить аккаунт: обезличивание, история остаётся. Нельзя при активных бронях или балансе.",
     "is_admin": "role = admin в JWT. Используется в RLS.",
+    "admin_search_users": "Admin: поиск по телефону (цифры, + и пробелы игнорируются), имени или id; карточка пользователя одним вызовом.",
+    "admin_moderate": "Admin: warn | restrict | suspend (days) | ban | unban; пишет moderation_actions, цели moderation_action; с report_id жалоба -> actioned.",
+    "admin_resolve_report": "Admin: reviewed (в работе) | dismissed.",
+    "admin_cancel_trip": "Admin: скрыть поездку = отмена платформой, возвраты 100 %, без cancels_total водителю. -> {cancelled_bookings, refunded_kz}.",
+    "admin_cancel_booking": "Admin: отмена одной брони платформой, возврат 100 %, счётчики сторон не меняются. -> {status, refund_kz}.",
+    "admin_mark_refund_manual": "Admin: возврат сделан вручную переводом (ref), закрывает очередь refund_manual.",
+    "admin_upsert_place": "Admin: payload {id?, name, province, slug, kind, lat, lng, aliases[], is_active}; slug уникален.",
+    "admin_merge_places": "Admin: слить дубль from_id в into_id (поездки, route_durations, алиасы), from деактивируется.",
+    "admin_stats": "Admin: {queues, today, week, health} для дашборда.",
+    "admin_weekly": "Admin: по неделям воронка, GMV, fee, возвраты, отмены по сторонам, время ответа водителя и верификации, top_routes.",
     "confirm_payment": "Вебхук шлюза (service role): paid/failed/expired по платежу.",
     "payment_initiated": "payments-init создал транзакцию: created -> pending.",
     "payment_refund_result": "payments-refund сходил в шлюз: refund_ref или попытка.",
@@ -79,6 +89,8 @@ CLIENT_RPC_ORDER = [
     "enter_pin", "confirm_trip", "mark_no_show", "resolve_dispute",
     "send_message", "mark_read", "reveal_contact", "submit_review", "report_user",
     "request_payout", "mark_payout", "submit_verification", "review_verification", "delete_me", "is_admin",
+    "admin_search_users", "admin_moderate", "admin_resolve_report", "admin_cancel_trip", "admin_cancel_booking",
+    "admin_mark_refund_manual", "admin_upsert_place", "admin_merge_places", "admin_stats", "admin_weekly",
 ]
 
 
