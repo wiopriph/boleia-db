@@ -98,6 +98,7 @@ docs/
   spec.md                       ТЗ, источник истины
   api.md                        контракт для клиентов, генерируется из базы
   flutter-handoff.md            точка входа для Flutter
+  web-kickoff.md                стартовый промпт для boleia-web
   gateway-contract.md           контракт платёжного шлюза; мок и адаптер написаны под него
   plans/                        план и решения по каждой миграции
 CLAUDE.md                       контекст для Claude Code
