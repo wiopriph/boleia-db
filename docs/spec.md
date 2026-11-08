@@ -109,7 +109,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | avatar\_url | text | Storage; обязателен для публикации поездки, для пассажира — желателен (напоминание при первой брони, не блокер) |
 | bio | text | до 300 символов |
 | birth\_year | smallint | для показа возраста «30 лет», не дата |
-| chat\_level | enum `chat_level` | `bla`, `blabla`, `blablabla` |
+| chat\_level | enum `chat_level` | `bla`, `blabla`, `blablabla`; в UI MVP не показывается (раздел 15), остаётся `blabla` по умолчанию |
 | driver\_status | enum `driver_status` | `none`, `pending`, `verified`, `rejected`; в UI — два состояния: ✓ Verificado или нет |
 | driver\_verified\_at | timestamptz | — |
 | rating\_avg | numeric(3,2) | пересчитывается триггером по `reviews` |
@@ -507,7 +507,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Функция | Кто вызывает | Что делает |
 | --- | --- | --- |
 | `search_trips(origin, destination, date, seats, cursor)` | все, включая анонимов | поиск по `trips_public`, ±1 день; сортировка: сначала по времени, при равном — verified выше; пишет `events.search` |
-| `upsert_profile(payload)` | владелец | имя, bio, год рождения, chat\_level, payout\_method, `terms_accepted` / `adult_confirmed` (один раз); телефон не меняется здесь |
+| `upsert_profile(payload)` | владелец | имя, bio, год рождения, payout\_method, chat\_level (принимается, в UI MVP не выводится), `terms_accepted` / `adult_confirmed` (один раз); телефон не меняется здесь |
 | `upsert_vehicle(payload)` | владелец | макс. 3 активные машины; смена номера сбрасывает `verified` |
 | `submit_verification(vehicle_id, doc_urls)` | владелец | `doc_urls` — четыре пути в бакете `verifications/<uid>/` (`VERIFICATION_INCOMPLETE`); одна `pending` (`VERIFICATION_PENDING`); после `rejected` не раньше чем через 24 ч (`RATE_LIMITED`); `driver_status → pending`, если был `none`/`rejected` (verified водитель с новой машиной остаётся verified); админам `verification_submitted` |
 | `review_verification(id, approve, reason)` | admin | approve → `driver_status = verified`, `vehicles.verified = true`, `moderation_actions(verify_id)`; reject → `reason` обязателен (`REASON_REQUIRED`), `driver_status = rejected`, если не verified по другой машине; уведомление с причиной |
@@ -805,14 +805,14 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | --- | --- | --- | --- |
 | Поиск (главная) | P0 | откуда, куда (автокомплит по `places`), дата, мест; популярные маршруты из `route_stats`; блок «Pagamento protegido» | `search_trips`, `places` |
 | Результаты | P0 | карточки: время, маршрут, цена + комиссия, водитель (фото, имя, рейтинг, ✓, поездок), мест осталось; фильтр по времени дня и цене | `search_trips` |
-| Поездка | P0 | детали, точки посадки/высадки, машина, опции, профиль водителя, две кнопки — «Reservar N lugares» (сумма с комиссией; после оплаты при instant — сразу в чат поездки с подтверждённым местом, при approval — экран ожидания ответа) и «Perguntar ao condutor» (чат до брони) | `trips_public`, `request_booking` |
+| Поездка | P0 | детали, точки посадки/высадки, машина, опции (только багаж и «máx. 2 atrás»; курение, животные, chat\_level не показываются — раздел 15), время ожидания опоздавших, профиль водителя, две кнопки — «Reservar N lugares» (сумма с комиссией; после оплаты при instant — сразу в чат поездки с подтверждённым местом, при approval — экран ожидания ответа) и «Perguntar ao condutor» (чат до брони) | `trips_public`, `request_booking` |
 | Оплата | P0 | сумма, «подтвердите в Multicaixa Express» (web — QR), таймер 15 мин, «Проверить оплату», результат | `payments-init`, `payments-status`, realtime по брони |
 | Вход по телефону | P0 | ввод +244, OTP, согласие с правилами | Supabase auth |
-| Онбординг профиля | P0 | имя, фото (сжатие на клиенте), год рождения, chat\_level | `upsert_profile` |
+| Онбординг профиля | P0 | имя, фото (сжатие на клиенте), год рождения, согласие с правилами и 18+; chat\_level в UI нет (раздел 15) | `upsert_profile` |
 | Стать водителем | P0 | мастер: машина → фото документа, прав, машины с номером, селфи → способ выплаты → отправить; экран статуса `pending` / `rejected` с причиной | `upsert_vehicle`, `submit_verification` |
 | Профиль публичный | P0 | данные доверия, ✓, отзывы, «пожаловаться» | `profiles_public`, `reviews` |
 | Мой профиль | P0 | редактирование, машины, способ выплаты, удалить аккаунт | `upsert_profile`, `upsert_vehicle`, `delete_me` |
-| Опубликовать поездку | P0 | мастер в 4 шага: маршрут + точки, дата/время, места + цена (подсказка по медиане маршрута), опции; превью → публикация; выбор режима брони (автобронь / подтверждать вручную); для unverified — плашка «пройдите верификацию: ✓ и выше в выдаче» | `publish_trip` |
+| Опубликовать поездку | P0 | мастер в 4 шага: маршрут + точки, дата/время, места + цена (подсказка по медиане маршрута), опции (багаж, «máx. 2 atrás»; курение и животные в UI нет — раздел 15), время ожидания опоздавших (30 / 45 / 60); превью → публикация; выбор режима брони (автобронь / подтверждать вручную); для unverified — плашка «пройдите верификацию: ✓ и выше в выдаче» | `publish_trip` |
 | Мои поездки (водитель) | P0 | «Предстоящие / Прошлые»; в карточке — оплаченные запросы с принять/отклонить, кнопка в чат, ввод PIN в день поездки, «не пришёл», отмена | `trips` + `bookings`, `respond_booking`, `enter_pin`, `mark_no_show`, `cancel_trip` |
 | Мои брони (пассажир) | P0 | статус с деньгами («7 700 Kz удержано», «возвращено»), чат, PIN и телефон в день поездки, отмена с показом суммы возврата, «Вы доехали?» | `my_bookings`, `cancel_booking`, `confirm_trip`, `reveal_contact` |
 | Чаты | P0 | список чатов с непрочитанными; экран чата: сообщения, системные вставки (статусы, PIN), плашка «номера скрыты до дня поездки» | `my_conversations`, `messages`, `send_message`, `mark_read` |

@@ -107,7 +107,7 @@ def enums() -> str:
 
 
 VIEW_DOC = {
-    "trips_public": "Поездки в published/full для поиска и карточки. Без телефона и номера машины.",
+    "trips_public": "Поездки в published/full для поиска и карточки. Без телефона и номера машины. В UI MVP из опций только luggage и max_two_in_back; allows_smoking, allows_pets, driver_chat_level не показывать (ТЗ раздел 15).",
     "profiles_public": "Публичный профиль: доверие, рейтинг, бейдж отмен. Без телефона и баланса.",
     "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; "
                    "(фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и "
@@ -304,9 +304,9 @@ DOC = f"""# Boleia API: контракт для клиентов
 
 | RPC | Ключи |
 | --- | --- |
-| `upsert_profile(payload)` | `display_name` (2-40), `avatar_url` (путь в `avatars/<uid>/`), `bio` (<= 300), `birth_year`, `chat_level` (enum), `locale`, `payout_method`: `{{"type":"mcx_express","phone":"+244XXXXXXXXX"}}` или `{{"type":"iban","iban":"<25 знаков>","bank":"..."}}`, `terms_accepted: true`, `adult_confirmed: true` (фиксируются один раз). Любой ключ опционален |
+| `upsert_profile(payload)` | `display_name` (2-40), `avatar_url` (путь в `avatars/<uid>/`), `bio` (<= 300), `birth_year`, `chat_level` (enum; в UI MVP не показывать, ТЗ раздел 15), `locale`, `payout_method`: `{{"type":"mcx_express","phone":"+244XXXXXXXXX"}}` или `{{"type":"iban","iban":"<25 знаков>","bank":"..."}}`, `terms_accepted: true`, `adult_confirmed: true` (фиксируются один раз). Любой ключ опционален |
 | `upsert_vehicle(payload)` | `id` (если есть - изменить), `make`*, `model`*, `color`, `year`, `plate`, `seats_total`* (1-8), `photo_url`, `status` (`active`/`removed`). Смена `plate` сбрасывает `verified` |
-| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `wait_minutes` (30 | 45 | 60, по умолчанию 30: сколько водитель ждёт опоздавших), `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
+| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `wait_minutes` (30 | 45 | 60, по умолчанию 30: сколько водитель ждёт опоздавших), `luggage` и `max_two_in_back` (единственные опции в UI MVP), `allows_smoking`, `allows_pets` (в БД есть, в UI не показывать, ТЗ раздел 15), `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
 | `update_trip(trip_id, payload)` | подмножество: `price_per_seat_kz`, `seats_offered`, `notes`, `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `origin_detail`, `destination_detail`, `departure_at`, `booking_mode`, `wait_minutes`; другие ключи -> `TRIP_FIELD_LOCKED` |
 | `submit_verification(vehicle_id, doc_urls)` | `id_doc_url`, `licence_url`, `vehicle_photo_url`, `selfie_url` - все четыре, значения как пути `<uid>/<file>` в бакете `verifications` |
 
