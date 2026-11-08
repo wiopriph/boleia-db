@@ -16,11 +16,12 @@ Boleia — сервис междугородних попуток в Ангол�
 
 Окружения: на время разработки обоих клиентов один общий облачный проект Supabase (данные общие, перед релизом `scripts/wipe-data.sql`) плюс локальный `supabase start` у каждого. URL и ключи проекта в репозитории не хранятся.
 
-## Состояние: I0 сделан
+## Состояние
 
-Миграции `0001–0004` подняты и проверены: схема, views, RLS, рабочие RPC (`search_trips`, `upsert_profile`, `upsert_vehicle`, `publish_trip`, `price_hint`, `register_device`, `mark_notifications_read`). Остальные RPC — заглушки с окончательными сигнатурами, бросают `BOLEIA_NOT_IMPLEMENTED`. Seed и тесты в `supabase/seed.sql`, `supabase/tests/`.
-
-I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, платежи, ledger-операции, `cancel_quote`), `0006_trip_lifecycle` (PIN, подтверждение, споры, отмена поездки, `update_trip`, `create_return_trip`), `0007_scheduler` (`run_scheduler(as_of)`, pg_cron, тихие часы, `pending_refunds`), `0008_chat_payouts_misc` (чат с маскированием, отзывы, жалобы, выплаты, верификация, `delete_me`, Storage-бакеты); решения в `docs/plans/000N_*.md`. `0009_edge_support` + `supabase/functions/` (payments-*, notify, send-sms, мок шлюза, Auth hooks как pg-functions, `edge_call` через pg_net + Vault). I1 закрыт: все RPC раздела 6 имеют тела, smoke `scripts/edge-smoke.sh` проходит против мока. Контракт шлюза: `docs/gateway-contract.md`.
+I0 и I1 (ТЗ раздел 13) закрыты: миграции `0001`–`0009`, все RPC раздела 6 реализованы и покрыты pgTAP
+(`supabase/tests/`), `run_scheduler` в pg_cron, Edge Functions в `supabase/functions/`, сквозной сценарий
+`scripts/edge-smoke.sh` проходит локально и в облаке. Почему код устроен так, а не иначе - `docs/plans/`.
+Дальше по разделу 13: клиенты, затем I4 (Telegram-бот модерации, реальные провайдеры SMS/push и шлюз).
 
 ## Архитектура — правила, которые не обсуждаются
 
