@@ -4,6 +4,8 @@
 
 ТЗ — `docs/spec.md`. Контекст для Claude Code — `CLAUDE.md`.
 
+Для Flutter-клиента: `docs/flutter-handoff.md`, контракт `docs/api.md`, типы `types/database.ts`.
+
 ## Первый запуск
 
 Нужны Docker Desktop и Supabase CLI (`brew install supabase/tap/supabase` или `npm i -g supabase`).
@@ -88,7 +90,7 @@ supabase migration new <что_меняем>   # новый файл в supabase
 # пишем SQL
 supabase db reset                     # с нуля: миграции + seed
 supabase test db                      # pgTAP из supabase/tests/
-supabase gen types typescript --local > ../boleia-web/types/database.ts
+scripts/gen-types.sh                  # types/database.ts + docs/api.md, коммитить вместе с миграцией
 ```
 
 Правила: одна миграция = один PR; `db reset` обязан проходить чисто; каждый RPC с деньгами или переходом статуса — с pgTAP-тестом; в облаке схему руками не трогаем, только `supabase db push`.
@@ -110,7 +112,10 @@ supabase/
   seed.sql
   tests/                        pgTAP
   functions/                    Edge Functions: payments-*, notify, send-sms, payments-mock; _shared/
-scripts/                        dev-vault.sh, edge-smoke.sh
+scripts/                        dev-vault.sh, edge-smoke.sh, gen-types.sh (+ gen-api-doc.py), wipe-data.sql
+types/database.ts               supabase gen types, коммитится вместе с миграцией
+docs/api.md                     контракт для клиентов, генерируется из базы
+docs/flutter-handoff.md         точка входа для Manuel
 docs/gateway-contract.md        контракт шлюза, под него написан мок и адаптер
 docs/spec.md                    ТЗ
 CLAUDE.md                       контекст для Claude Code

@@ -12,7 +12,9 @@ Boleia — сервис междугородних попуток в Ангол�
 
 `boleia-db` — бэкенд целиком: миграции Postgres, RLS, RPC, триггеры, cron, Edge Functions, pgTAP. Клиенты (`boleia-web` на Nuxt, `boleia-app` на Flutter) ходят сюда через Supabase SDK. Контракт между всеми клиентами = схема Postgres: views для чтения, RPC для записи, enum'ы как типы.
 
-Команда — два человека, part-time. Evgenii — этот репозиторий и web; Manuel — Flutter и ревью PR сюда.
+Команда — два человека, part-time. Evgenii — этот репозиторий и web; Manuel — Flutter, он потребитель бэкенда, не ревьюер. Для Manuel и его Claude точка входа — `docs/flutter-handoff.md`, контракт — `docs/api.md` и `types/database.ts` (генерируются `scripts/gen-types.sh`).
+
+Окружения: на время разработки обоих клиентов один общий облачный проект Supabase (данные общие, перед релизом `scripts/wipe-data.sql`) плюс локальный `supabase start` у каждого. URL и ключи проекта в репозитории не хранятся.
 
 ## Состояние: I0 сделан
 
@@ -49,10 +51,10 @@ I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, п�
 ## Соглашения
 
 - SQL: `snake_case`; `uuid default gen_random_uuid()`; `created_at`/`updated_at` на каждой таблице (общий триггер уже навешан циклом в `0001`; для новой таблицы — добавь триггер в своей миграции); деньги `integer` в `*_kz`; время `timestamptz`.
-- Миграции: `supabase migration new <name>`, одна миграция = один PR, `supabase db reset` обязан проходить чисто.
+- Миграции: файлы `supabase/migrations/2026111000000N_<name>.sql` (нумерация продолжается), одна миграция = один коммит в `master`, `supabase db reset` обязан проходить чисто. Веток и PR пока нет.
 - Тесты: `supabase/tests/NN_<topic>.test.sql`, pgTAP; каждый RPC с деньгами или переходом статуса — с тестом. Для имперсонации: `select set_config('request.jwt.claims', '{"sub":"<uuid>","role":"authenticated"}', true); set local role authenticated;`. Temp-таблицы создавай до смены роли и делай `grant all on ... to authenticated`.
 - Edge Functions: Deno/TS в `supabase/functions/<name>/index.ts`; общий клиент в `_shared/`; вызывают RPC `service_role`-ключом; бизнес-правил не содержат.
-- Коммиты и PR — на английском, короткие; в описании PR — раздел ТЗ.
+- Коммиты — на английском, короткие, с номером раздела ТЗ в теле.
 
 ## Чего не делать
 
@@ -67,6 +69,6 @@ I1 идёт по `NEXT.md`. Сделано: `0005_booking_core` (брони, п�
 - Перед задачей: прочитай нужный раздел `docs/spec.md`, назови его в ответе.
 - Непонятно или ТЗ противоречит само себе — остановись и спроси, с цитатой из ТЗ.
 - Новая таблица / смена enum / новый RPC — сначала план, потом код.
-- После миграции: `supabase db reset` → `supabase test db` → `supabase gen types`.
+- После миграции: `supabase db reset` → `supabase test db` → `scripts/gen-types.sh` (обновляет `types/database.ts` и `docs/api.md`, коммитить вместе с миграцией) → в облако `supabase db push`.
 - После `supabase db reset` локальный Vault пуст: `scripts/dev-vault.sh`, иначе cron не дозовётся до Edge (тесты этого не требуют).
 - GoTrue хранит телефоны без `+`, `profiles.phone` в E.164; в seed `auth.users` номера без `+`. Сравнивать номера только через `same_phone()`.
