@@ -1,0 +1,132 @@
+# boleia-db
+
+Бэкенд Boleia: схема Postgres, RLS, RPC, триггеры, Edge Functions, тесты. Один источник истины для web (Nuxt) и mobile (Flutter).
+
+ТЗ — `docs/spec.md`. Контекст для Claude Code — `CLAUDE.md`.
+
+## Первый запуск
+
+Нужны Docker Desktop и Supabase CLI (`brew install supabase/tap/supabase` или `npm i -g supabase`).
+
+```bash
+git clone <repo> boleia-db && cd boleia-db
+supabase init            # создаст supabase/config.toml; миграции и seed уже лежат рядом
+# → примените правки из раздела «config.toml» ниже
+supabase start           # первый раз качает образы, 3–5 минут
+supabase db reset        # применяет миграции + seed.sql
+supabase test db         # pgTAP
+```
+
+После `supabase start` в консоли — URL и ключи:
+
+| Что | Где |
+|---|---|
+| API (для Nuxt/Flutter) | http://127.0.0.1:54321 |
+| Studio (дашборд) | http://127.0.0.1:54323 |
+| Postgres | postgresql://postgres:postgres@127.0.0.1:54322/postgres |
+| Inbucket (ловит SMS/email в dev) | http://127.0.0.1:54324 |
+
+С Android-эмулятора API доступен как `http://10.0.2.2:54321`.
+
+## config.toml — что поменять после `supabase init`
+
+```toml
+[db]
+major_version = 15          # или 17 — что предложит CLI; схема работает на обоих
+
+[auth]
+enable_signup = true
+
+[auth.sms]
+enable_signup = true
+enable_confirmations = true
+
+# тестовые номера: OTP не отправляется, код всегда 123456
+[auth.sms.test_otp]
+"244900000001" = "123456"
+"244900000002" = "123456"
+"244900000003" = "123456"
+"244900000004" = "123456"
+"244900000005" = "123456"
+"244900000099" = "123456"
+
+# CLI 3.x отключает вход по телефону без SMS-провайдера; заглушка, test_otp до неё не доходит
+[auth.sms.twilio]
+enabled = true
+account_sid = "local-dev"
+message_service_sid = "local-dev"
+auth_token = "local-dev"
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "5MiB"
+```
+
+CLI 3.x: если в сгенерированном `config.toml` есть секция `[inbucket]`, переименуйте её в `[local_smtp]`, иначе `supabase status` и `start` падают. Если `supabase start` уже делали старой версией CLI, перед первым стартом новой выполните `supabase stop --no-backup`: старый том Postgres не совместим с новым образом (ошибка "collation version mismatch").
+
+Пользователи из `seed.sql` имеют те же номера, так что вход в dev — любой из них + `123456`.
+
+## Тестовые данные (seed)
+
+| Телефон | Кто | Роль |
+|---|---|---|
+| +244900000001 | Admin B. | admin (`app_metadata.role = admin`) |
+| +244900000002 | João M. | водитель, verified, instant booking |
+| +244900000003 | Teresa S. | водитель, verified, approval booking |
+| +244900000004 | Pedro K. | водитель, не verified, 1 отмена |
+| +244900000005 | Ana R. | пассажир |
+
+35 мест, 14 маршрутов в `route_durations`, 20 опубликованных поездок на ближайшие две недели.
+
+## Цикл разработки
+
+```bash
+supabase migration new <что_меняем>   # новый файл в supabase/migrations/
+# пишем SQL
+supabase db reset                     # с нуля: миграции + seed
+supabase test db                      # pgTAP из supabase/tests/
+supabase gen types typescript --local > ../boleia-web/types/database.ts
+```
+
+Правила: одна миграция = один PR; `db reset` обязан проходить чисто; каждый RPC с деньгами или переходом статуса — с pgTAP-тестом; в облаке схему руками не трогаем, только `supabase db push`.
+
+## Структура
+
+```
+supabase/
+  migrations/
+    20261110000001_schema.sql   enum'ы, таблицы, триггеры-инварианты
+    20261110000002_views.sql    trips_public, profiles_public, my_*, driver_wallet, route_stats
+    20261110000003_rls.sql      политики и grants
+    20261110000004_rpc.sql      RPC: рабочие + заглушки I1
+  seed.sql
+  tests/                        pgTAP
+  functions/                    Edge Functions (I1)
+docs/spec.md                    ТЗ
+CLAUDE.md                       контекст для Claude Code
+```
+
+## Что уже работает (I0)
+
+- Полная схема, enum'ы, индексы, инварианты: `seats_available` пересчитывается триггером, `ledger_entries` insert-only, `balance_kz` — кэш суммы ledger, рейтинг пересчитывается по отзывам, профиль создаётся при регистрации.
+- RLS: клиенты пишут только через RPC; `profiles` — column-level update своих полей; `payments.raw_*` не отдаются.
+- RPC: `search_trips` (анонимам тоже), `upsert_profile`, `upsert_vehicle`, `publish_trip`, `price_hint`, `register_device`, `mark_notifications_read`.
+- Остальные RPC объявлены с окончательными сигнатурами и бросают `BOLEIA_NOT_IMPLEMENTED`.
+
+## Что дальше (I1)
+
+Тела RPC из раздела 6 ТЗ, ledger-операции, cron (`run_scheduler`), Edge Functions `payments-*`, `send-sms`, `notify`, `auth-hook`. Первое сообщение для Claude Code — в `NEXT.md`.
+
+## Облако
+
+```bash
+supabase link --project-ref <ref>
+supabase db push
+supabase functions deploy
+supabase secrets set CASTBRICK_KEY=... 
+```
+
+Staging и prod — два разных проекта, два `link`. Отдельная организация от Ambo.
