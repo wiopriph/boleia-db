@@ -76,7 +76,7 @@ T2=$(pick_trip); B2=$(book "$T2")
 P2=$(curl -sf -X POST "$FN/payments-init" "${AUTH[@]}" -d "{\"booking_id\":\"$B2\",\"simulate\":\"mismatch\"}" | jget '["payment_id"]')
 sleep 7
 check "booking payment_failed" "$(sql "select status from public.bookings where id='$B2'")" "payment_failed"
-check "refund queued" "$(sql "select count(*) from public.pending_refunds where payment_id='$P2'")" "1"
+check "refund due" "$(sql "select (refund_kz > 0)::text from public.payments where id='$P2'")" "true"
 R=$(curl -sf -X POST "$FN/payments-refund" -H "Authorization: Bearer $SERVICE" -H 'content-type: application/json' -d '{}')
 echo "payments-refund: $R (в облаке cron мог успеть раньше)"
 check "payment refunded" "$(sql "select status from public.payments where id='$P2'")" "refunded"
