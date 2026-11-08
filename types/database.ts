@@ -1049,14 +1049,14 @@ isOneToOne: false
                   ]
                 },"trips": {
                   Row: {
-                    "allows_pets": boolean,"allows_smoking": boolean,"booking_mode": Database["public"]['Enums']["booking_mode"],"cancel_reason": string | null,"cancelled_at": string | null,"completed_ask_at": string | null,"completed_at": string | null,"created_at": string,"currency": string,"departed_at": string | null,"departure_at": string,"destination_detail": string | null,"destination_place_id": string,"driver_confirmed_at": string | null,"driver_id": string,"id": string,"luggage": Database["public"]['Enums']["luggage_size"],"max_two_in_back": boolean,"notes": string | null,"origin_detail": string | null,"origin_place_id": string,"price_per_seat_kz": number,"published_at": string | null,"reminded_24h_at": string | null,"reminded_6h_at": string | null,"seats_available": number,"seats_offered": number,"status": Database["public"]['Enums']["trip_status"],"updated_at": string,"vehicle_id": string,"view_count": number
+                    "allows_pets": boolean,"allows_smoking": boolean,"booking_mode": Database["public"]['Enums']["booking_mode"],"cancel_reason": string | null,"cancelled_at": string | null,"completed_ask_at": string | null,"completed_at": string | null,"created_at": string,"currency": string,"departed_at": string | null,"departure_at": string,"destination_detail": string | null,"destination_place_id": string,"driver_arrived_at": string | null,"driver_confirmed_at": string | null,"driver_id": string,"id": string,"luggage": Database["public"]['Enums']["luggage_size"],"max_two_in_back": boolean,"notes": string | null,"origin_detail": string | null,"origin_place_id": string,"price_per_seat_kz": number,"published_at": string | null,"reminded_24h_at": string | null,"reminded_6h_at": string | null,"seats_available": number,"seats_offered": number,"status": Database["public"]['Enums']["trip_status"],"updated_at": string,"vehicle_id": string,"view_count": number,"wait_minutes": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "allows_pets"?: boolean,"allows_smoking"?: boolean,"booking_mode"?: Database["public"]['Enums']["booking_mode"],"cancel_reason"?: string | null,"cancelled_at"?: string | null,"completed_ask_at"?: string | null,"completed_at"?: string | null,"created_at"?: string,"currency"?: string,"departed_at"?: string | null,"departure_at": string,"destination_detail"?: string | null,"destination_place_id": string,"driver_confirmed_at"?: string | null,"driver_id": string,"id"?: string,"luggage"?: Database["public"]['Enums']["luggage_size"],"max_two_in_back"?: boolean,"notes"?: string | null,"origin_detail"?: string | null,"origin_place_id": string,"price_per_seat_kz": number,"published_at"?: string | null,"reminded_24h_at"?: string | null,"reminded_6h_at"?: string | null,"seats_available": number,"seats_offered": number,"status"?: Database["public"]['Enums']["trip_status"],"updated_at"?: string,"vehicle_id": string,"view_count"?: number
+                    "allows_pets"?: boolean,"allows_smoking"?: boolean,"booking_mode"?: Database["public"]['Enums']["booking_mode"],"cancel_reason"?: string | null,"cancelled_at"?: string | null,"completed_ask_at"?: string | null,"completed_at"?: string | null,"created_at"?: string,"currency"?: string,"departed_at"?: string | null,"departure_at": string,"destination_detail"?: string | null,"destination_place_id": string,"driver_arrived_at"?: string | null,"driver_confirmed_at"?: string | null,"driver_id": string,"id"?: string,"luggage"?: Database["public"]['Enums']["luggage_size"],"max_two_in_back"?: boolean,"notes"?: string | null,"origin_detail"?: string | null,"origin_place_id": string,"price_per_seat_kz": number,"published_at"?: string | null,"reminded_24h_at"?: string | null,"reminded_6h_at"?: string | null,"seats_available": number,"seats_offered": number,"status"?: Database["public"]['Enums']["trip_status"],"updated_at"?: string,"vehicle_id": string,"view_count"?: number,"wait_minutes"?: number
                   }
                   Update: {
-                    "allows_pets"?: boolean,"allows_smoking"?: boolean,"booking_mode"?: Database["public"]['Enums']["booking_mode"],"cancel_reason"?: string | null,"cancelled_at"?: string | null,"completed_ask_at"?: string | null,"completed_at"?: string | null,"created_at"?: string,"currency"?: string,"departed_at"?: string | null,"departure_at"?: string,"destination_detail"?: string | null,"destination_place_id"?: string,"driver_confirmed_at"?: string | null,"driver_id"?: string,"id"?: string,"luggage"?: Database["public"]['Enums']["luggage_size"],"max_two_in_back"?: boolean,"notes"?: string | null,"origin_detail"?: string | null,"origin_place_id"?: string,"price_per_seat_kz"?: number,"published_at"?: string | null,"reminded_24h_at"?: string | null,"reminded_6h_at"?: string | null,"seats_available"?: number,"seats_offered"?: number,"status"?: Database["public"]['Enums']["trip_status"],"updated_at"?: string,"vehicle_id"?: string,"view_count"?: number
+                    "allows_pets"?: boolean,"allows_smoking"?: boolean,"booking_mode"?: Database["public"]['Enums']["booking_mode"],"cancel_reason"?: string | null,"cancelled_at"?: string | null,"completed_ask_at"?: string | null,"completed_at"?: string | null,"created_at"?: string,"currency"?: string,"departed_at"?: string | null,"departure_at"?: string,"destination_detail"?: string | null,"destination_place_id"?: string,"driver_arrived_at"?: string | null,"driver_confirmed_at"?: string | null,"driver_id"?: string,"id"?: string,"luggage"?: Database["public"]['Enums']["luggage_size"],"max_two_in_back"?: boolean,"notes"?: string | null,"origin_detail"?: string | null,"origin_place_id"?: string,"price_per_seat_kz"?: number,"published_at"?: string | null,"reminded_24h_at"?: string | null,"reminded_6h_at"?: string | null,"seats_available"?: number,"seats_offered"?: number,"status"?: Database["public"]['Enums']["trip_status"],"updated_at"?: string,"vehicle_id"?: string,"view_count"?: number,"wait_minutes"?: number
                   }
                   Relationships: [
                     {
@@ -1184,7 +1184,7 @@ isOneToOne: false
                   ]
                 },"my_bookings": {
                   Row: {
-                    "booking_mode": Database["public"]['Enums']["booking_mode"],"cancel_reason": string | null,"cancelled_at": string | null,"cancelled_by": Database["public"]['Enums']["party"] | null,"completed_at": string | null,"conversation_id": string | null,"created_at": string,"departure_at": string,"destination_detail": string | null,"destination_name": string,"destination_slug": string,"driver_avatar_url": string | null,"driver_id": string,"driver_name": string,"fee_kz": number,"id": string,"message": string | null,"origin_detail": string | null,"origin_name": string,"origin_slug": string,"paid_total_kz": number | null,"passenger_avatar_url": string | null,"passenger_cancels_total": number,"passenger_confirmed_at": string | null,"passenger_id": string,"passenger_name": string,"passenger_rating_avg": number,"passenger_trips_ridden": number,"payment_expires_at": string | null,"payment_status": Database["public"]['Enums']["payment_status"] | null,"pin_code": string | null,"pin_entered_at": string | null,"price_total_kz": number,"refund_kz": number,"requested_at": string | null,"responded_at": string | null,"seats": number,"status": Database["public"]['Enums']["booking_status"],"trip_id": string,"trip_status": Database["public"]['Enums']["trip_status"],"vehicle_color": string | null,"vehicle_make": string,"vehicle_model": string,"vehicle_photo_url": string | null,"vehicle_plate_suffix": string | null
+                    "booking_mode": Database["public"]['Enums']["booking_mode"],"cancel_reason": string | null,"cancelled_at": string | null,"cancelled_by": Database["public"]['Enums']["party"] | null,"completed_at": string | null,"conversation_id": string | null,"created_at": string,"departure_at": string,"destination_detail": string | null,"destination_name": string,"destination_slug": string,"driver_arrived_at": string | null,"driver_avatar_url": string | null,"driver_id": string,"driver_name": string,"fee_kz": number,"id": string,"message": string | null,"origin_detail": string | null,"origin_name": string,"origin_slug": string,"paid_total_kz": number | null,"passenger_avatar_url": string | null,"passenger_cancels_total": number,"passenger_confirmed_at": string | null,"passenger_id": string,"passenger_name": string,"passenger_no_shows": number,"passenger_rating_avg": number,"passenger_trips_ridden": number,"payment_expires_at": string | null,"payment_status": Database["public"]['Enums']["payment_status"] | null,"pin_code": string | null,"pin_entered_at": string | null,"price_total_kz": number,"refund_kz": number,"requested_at": string | null,"responded_at": string | null,"seats": number,"status": Database["public"]['Enums']["booking_status"],"trip_id": string,"trip_status": Database["public"]['Enums']["trip_status"],"vehicle_color": string | null,"vehicle_make": string,"vehicle_model": string,"vehicle_photo_url": string | null,"vehicle_plate_suffix": string | null,"wait_minutes": number,"wait_until": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1490,7 +1490,7 @@ isOneToOne: false
                   ]
                 },"trips_public": {
                   Row: {
-                    "allows_pets": boolean,"allows_smoking": boolean,"booking_mode": Database["public"]['Enums']["booking_mode"],"currency": string,"departure_at": string,"destination_detail": string | null,"destination_name": string,"destination_place_id": string,"destination_province": string,"destination_slug": string,"driver_avatar_url": string | null,"driver_cancels_total": number,"driver_chat_level": Database["public"]['Enums']["chat_level"],"driver_id": string,"driver_name": string,"driver_rating_avg": number,"driver_rating_count": number,"driver_trips_driven": number,"driver_verified": boolean | null,"duration_minutes": number | null,"id": string,"luggage": Database["public"]['Enums']["luggage_size"],"max_two_in_back": boolean,"notes": string | null,"origin_detail": string | null,"origin_name": string,"origin_place_id": string,"origin_province": string,"origin_slug": string,"price_per_seat_kz": number,"published_at": string | null,"seats_available": number,"seats_offered": number,"status": Database["public"]['Enums']["trip_status"],"vehicle_color": string | null,"vehicle_make": string,"vehicle_model": string,"vehicle_photo_url": string | null,"vehicle_verified": boolean
+                    "allows_pets": boolean,"allows_smoking": boolean,"booking_mode": Database["public"]['Enums']["booking_mode"],"currency": string,"departure_at": string,"destination_detail": string | null,"destination_name": string,"destination_place_id": string,"destination_province": string,"destination_slug": string,"driver_avatar_url": string | null,"driver_cancels_total": number,"driver_chat_level": Database["public"]['Enums']["chat_level"],"driver_id": string,"driver_name": string,"driver_rating_avg": number,"driver_rating_count": number,"driver_trips_driven": number,"driver_verified": boolean | null,"duration_minutes": number | null,"id": string,"luggage": Database["public"]['Enums']["luggage_size"],"max_two_in_back": boolean,"notes": string | null,"origin_detail": string | null,"origin_name": string,"origin_place_id": string,"origin_province": string,"origin_slug": string,"price_per_seat_kz": number,"published_at": string | null,"seats_available": number,"seats_offered": number,"status": Database["public"]['Enums']["trip_status"],"vehicle_color": string | null,"vehicle_make": string,"vehicle_model": string,"vehicle_photo_url": string | null,"vehicle_verified": boolean,"wait_minutes": number
                   }
                   ComputedFields: never
                   Relationships: [
@@ -1612,6 +1612,9 @@ isOneToOne: false
                            },
 "delete_me":
 { Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"driver_arrived":
+{ Args: { "trip_id": string }; Returns: Json
                            },
 "driver_share_kz":
 { Args: { "b": Omit<Database["public"]['Tables']["bookings"]['Row'], Database["public"]['Tables']["bookings"]['ComputedFields']>,"p_amount_kz": number }; Returns: number
@@ -1863,7 +1866,8 @@ isOneToOne: false
 "vehicle_make": string,
 "vehicle_model": string,
 "vehicle_photo_url": string | null,
-"vehicle_verified": boolean
+"vehicle_verified": boolean,
+"wait_minutes": number
             }[]
                           SetofOptions: {
         from: "*"
@@ -1907,6 +1911,7 @@ isOneToOne: false
 "departure_at": string,
 "destination_detail": string | null,
 "destination_place_id": string,
+"driver_arrived_at": string | null,
 "driver_confirmed_at": string | null,
 "driver_id": string,
 "id": string,
@@ -1924,7 +1929,8 @@ isOneToOne: false
 "status": Database["public"]['Enums']["trip_status"],
 "updated_at": string,
 "vehicle_id": string,
-"view_count": number
+"view_count": number,
+"wait_minutes": number
             }
                           SetofOptions: {
         from: "*"

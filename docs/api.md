@@ -28,7 +28,7 @@
 ## Ошибки RPC
 
 `PostgrestException` с `code = P0001` и `message = BOLEIA_<CODE>`. Клиент мапит код на текст pt-AO.
-Коды: `AMOUNT_INVALID`, `BALANCE_NOT_ZERO`, `BOOKING_CLOSED`, `BOOKING_DUPLICATE`, `BOOKING_LIMIT_REACHED`, `BOOKING_NOT_FOUND`, `CHAT_CLOSED`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `DAYS_REQUIRED`, `DEPARTURE_TOO_SOON`, `DISPUTE_AMOUNT_INVALID`, `DISPUTE_OUTCOME_INVALID`, `DRIVER_LIMIT_REACHED`, `HAS_ACTIVE_BOOKINGS`, `INSUFFICIENT_BALANCE`, `LEDGER_IMMUTABLE`, `LEDGER_UNBALANCED`, `MESSAGE_EMPTY`, `MESSAGE_TOO_LONG`, `MODERATION_ACTION_INVALID`, `NAME_INVALID`, `NOT_ADMIN`, `NOT_AUTHENTICATED`, `NOT_PARTICIPANT`, `NO_SHOW_NEEDS_PIN`, `NO_SHOW_WINDOW_CLOSED`, `OWN_TRIP`, `PAYMENT_NOT_FOUND`, `PAYMENT_PENDING`, `PAYMENT_REF_MISMATCH`, `PAYMENT_RETRY_LIMIT`, `PAYMENT_STATUS_INVALID`, `PAYOUT_CLOSED`, `PAYOUT_METHOD_INVALID`, `PAYOUT_NOT_FOUND`, `PAYOUT_PENDING`, `PAYOUT_STATUS_INVALID`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `PLACE_INVALID`, `PLACE_NOT_FOUND`, `PLACE_SLUG_TAKEN`, `PRICE_INVALID`, `PROFILE_INCOMPLETE`, `PROFILE_NOT_FOUND`, `PROFILE_RESTRICTED`, `PROTECTED_FIELD`, `RATE_LIMITED`, `RATING_INVALID`, `REASON_REQUIRED`, `REPORT_CLOSED`, `REPORT_NOT_FOUND`, `REPORT_OUTCOME_INVALID`, `REVIEW_DUPLICATE`, `REVIEW_WINDOW_CLOSED`, `SAME_PLACE`, `SEATS_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `TARGET_IS_ADMIN`, `TOO_LATE_TO_CANCEL`, `TRIP_CLOSED`, `TRIP_DUPLICATE`, `TRIP_FIELD_LOCKED`, `TRIP_FULL`, `TRIP_HAS_BOOKINGS`, `TRIP_NOT_BOOKABLE`, `TRIP_NOT_FOUND`, `VEHICLE_INCOMPLETE`, `VEHICLE_LIMIT_REACHED`, `VEHICLE_NOT_FOUND`, `VERIFICATION_CLOSED`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`.
+Коды: `AMOUNT_INVALID`, `ARRIVAL_WINDOW_CLOSED`, `BALANCE_NOT_ZERO`, `BOOKING_CLOSED`, `BOOKING_DUPLICATE`, `BOOKING_LIMIT_REACHED`, `BOOKING_NOT_FOUND`, `CHAT_CLOSED`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `DAYS_REQUIRED`, `DEPARTURE_TOO_SOON`, `DISPUTE_AMOUNT_INVALID`, `DISPUTE_OUTCOME_INVALID`, `DRIVER_LIMIT_REACHED`, `HAS_ACTIVE_BOOKINGS`, `INSUFFICIENT_BALANCE`, `LEDGER_IMMUTABLE`, `LEDGER_UNBALANCED`, `MESSAGE_EMPTY`, `MESSAGE_TOO_LONG`, `MODERATION_ACTION_INVALID`, `NAME_INVALID`, `NOT_ADMIN`, `NOT_AUTHENTICATED`, `NOT_PARTICIPANT`, `NO_SHOW_NEEDS_PIN`, `NO_SHOW_TOO_EARLY`, `NO_SHOW_WINDOW_CLOSED`, `OWN_TRIP`, `PAYMENT_NOT_FOUND`, `PAYMENT_PENDING`, `PAYMENT_REF_MISMATCH`, `PAYMENT_RETRY_LIMIT`, `PAYMENT_STATUS_INVALID`, `PAYOUT_CLOSED`, `PAYOUT_METHOD_INVALID`, `PAYOUT_NOT_FOUND`, `PAYOUT_PENDING`, `PAYOUT_STATUS_INVALID`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `PLACE_INVALID`, `PLACE_NOT_FOUND`, `PLACE_SLUG_TAKEN`, `PRICE_INVALID`, `PROFILE_INCOMPLETE`, `PROFILE_NOT_FOUND`, `PROFILE_RESTRICTED`, `PROTECTED_FIELD`, `RATE_LIMITED`, `RATING_INVALID`, `REASON_REQUIRED`, `REPORT_CLOSED`, `REPORT_NOT_FOUND`, `REPORT_OUTCOME_INVALID`, `REVIEW_DUPLICATE`, `REVIEW_WINDOW_CLOSED`, `SAME_PLACE`, `SEATS_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `TARGET_IS_ADMIN`, `TOO_LATE_TO_CANCEL`, `TRIP_CLOSED`, `TRIP_DUPLICATE`, `TRIP_FIELD_LOCKED`, `TRIP_FULL`, `TRIP_HAS_BOOKINGS`, `TRIP_NOT_BOOKABLE`, `TRIP_NOT_FOUND`, `VEHICLE_INCOMPLETE`, `VEHICLE_LIMIT_REACHED`, `VEHICLE_NOT_FOUND`, `VERIFICATION_CLOSED`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`, `WAIT_INVALID`.
 
 Значения кодов - ТЗ раздел 7. `42501` (permission denied) означает вызов RPC не той ролью.
 
@@ -85,7 +85,7 @@
 ## Уведомления
 
 `notifications where user_id = uid and channel = 'inapp'` - лента в приложении; push через FCM по
-`register_device`. Типы: `booking_accepted`, `booking_cancelled_by_driver`, `booking_cancelled_by_passenger`, `booking_confirmed`, `booking_declined`, `booking_expired`, `booking_no_show`, `booking_requested`, `dispute_opened`, `dispute_resolved`, `driver_unconfirmed`, `moderation_action`, `new_message`, `payment_failed`, `payment_pending`, `payout_failed`, `payout_paid`, `payout_released`, `payout_requested`, `pin_ready`, `reconciliation_alert`, `refund_done`, `refund_manual`, `report_opened`, `review_request`, `trip_cancelled`, `trip_completed_ask`, `trip_reminder_24h`, `trip_reminder_2h`, `trip_reminder_6h`, `verification_approved`, `verification_rejected`, `verification_submitted`. Payload содержит `booking_id` / `trip_id` /
+`register_device`. Типы: `booking_accepted`, `booking_cancelled_by_driver`, `booking_cancelled_by_passenger`, `booking_confirmed`, `booking_declined`, `booking_expired`, `booking_no_show`, `booking_requested`, `dispute_opened`, `dispute_resolved`, `driver_arrived`, `driver_unconfirmed`, `moderation_action`, `new_message`, `payment_failed`, `payment_pending`, `payout_failed`, `payout_paid`, `payout_released`, `payout_requested`, `pin_ready`, `reconciliation_alert`, `refund_done`, `refund_manual`, `report_opened`, `review_request`, `trip_cancelled`, `trip_completed_ask`, `trip_reminder_24h`, `trip_reminder_2h`, `trip_reminder_6h`, `verification_approved`, `verification_rejected`, `verification_submitted`. Payload содержит `booking_id` / `trip_id` /
 `conversation_id` для deep link (`boleia://booking/<id>`, `boleia://trip/<id>`).
 
 ## Формы jsonb
@@ -98,8 +98,8 @@
 | --- | --- |
 | `upsert_profile(payload)` | `display_name` (2-40), `avatar_url` (путь в `avatars/<uid>/`), `bio` (<= 300), `birth_year`, `chat_level` (enum), `locale`, `payout_method`: `{"type":"mcx_express","phone":"+244XXXXXXXXX"}` или `{"type":"iban","iban":"<25 знаков>","bank":"..."}`, `terms_accepted: true`, `adult_confirmed: true` (фиксируются один раз). Любой ключ опционален |
 | `upsert_vehicle(payload)` | `id` (если есть - изменить), `make`*, `model`*, `color`, `year`, `plate`, `seats_total`* (1-8), `photo_url`, `status` (`active`/`removed`). Смена `plate` сбрасывает `verified` |
-| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
-| `update_trip(trip_id, payload)` | подмножество: `price_per_seat_kz`, `seats_offered`, `notes`, `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `origin_detail`, `destination_detail`, `departure_at`, `booking_mode`; другие ключи -> `TRIP_FIELD_LOCKED` |
+| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `wait_minutes` (30 | 45 | 60, по умолчанию 30: сколько водитель ждёт опоздавших), `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
+| `update_trip(trip_id, payload)` | подмножество: `price_per_seat_kz`, `seats_offered`, `notes`, `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `origin_detail`, `destination_detail`, `departure_at`, `booking_mode`, `wait_minutes`; другие ключи -> `TRIP_FIELD_LOCKED` |
 | `submit_verification(vehicle_id, doc_urls)` | `id_doc_url`, `licence_url`, `vehicle_photo_url`, `selfie_url` - все четыре, значения как пути `<uid>/<file>` в бакете `verifications` |
 
 **Возвраты**
@@ -170,7 +170,7 @@
 
 ### `my_bookings`
 
-Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок (фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и vehicle_*; pin_code появляется с departure_at - 2 ч. cancel_reason объясняет payment_failed и cancelled. Читают: anon, authenticated, service_role.
+Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; (фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и vehicle_*; pin_code появляется с departure_at - 2 ч. cancel_reason объясняет payment_failed и cancelled. Читают: anon, authenticated, service_role.
 
 | Колонка | Тип |
 | --- | --- |
@@ -219,6 +219,10 @@
 | `passenger_rating_avg` | `numeric(3,2)` |
 | `passenger_trips_ridden` | `integer` |
 | `passenger_cancels_total` | `smallint` |
+| `wait_minutes` | `smallint` |
+| `wait_until` | `timestamp with time zone` |
+| `driver_arrived_at` | `timestamp with time zone` |
+| `passenger_no_shows` | `smallint` |
 
 ### `my_conversations`
 
@@ -362,6 +366,7 @@
 | `vehicle_color` | `text` |
 | `vehicle_photo_url` | `text` |
 | `vehicle_verified` | `boolean` |
+| `wait_minutes` | `smallint` |
 
 
 ## Таблицы: что читается напрямую
@@ -456,6 +461,12 @@ Push-токен устройства (upsert по токену).
 
 Водитель подтверждает, что едет (ответ на напоминание -24 ч).
 
+### `driver_arrived(trip_id uuid)`
+
+Возвращает `jsonb`. Кто: authenticated.
+
+Водитель на месте встречи (окно departure_at - 3 ч .. departure_at + wait_minutes). Пассажирам driver_arrived; при споре это ответ водителя. -> {driver_arrived_at, wait_until, already?}.
+
 ### `cancel_trip(trip_id uuid, reason text DEFAULT NULL::text)`
 
 Возвращает `void`. Кто: authenticated.
@@ -508,7 +519,7 @@ Push-токен устройства (upsert по токену).
 
 Возвращает `void`. Кто: authenticated.
 
-Водитель: пассажир не пришёл. Нужен PIN другого пассажира, иначе спор.
+Водитель: пассажир не пришёл. Не раньше departure_at + wait_minutes (NO_SHOW_TOO_EARLY); нужен PIN другого пассажира, иначе спор.
 
 ### `resolve_dispute(booking_id uuid, outcome text, amount_kz integer DEFAULT NULL::integer)`
 

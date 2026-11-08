@@ -2,6 +2,8 @@
 
 type Payload = Record<string, unknown>;
 const kz = (n: unknown) => `${Number(n ?? 0).toLocaleString("pt-PT")} Kz`;
+const luanda = (iso: unknown) =>
+  new Date(String(iso)).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Luanda" });
 
 const texts: Record<string, (p: Payload) => { title: string; body: string }> = {
   payment_pending: (p) => ({ title: "Confirme o pagamento", body: `Confirme ${kz(p.amount_kz)} no Multicaixa Express em 15 minutos.` }),
@@ -19,7 +21,11 @@ const texts: Record<string, (p: Payload) => { title: string; body: string }> = {
   trip_reminder_24h: () => ({ title: "Viagem amanhã", body: "Confirme que vai viajar." }),
   trip_reminder_6h: () => ({ title: "Confirme a viagem", body: "Sem confirmação os passageiros podem cancelar gratuitamente." }),
   driver_unconfirmed: () => ({ title: "Condutor não confirmou", body: "Pode cancelar gratuitamente até à partida." }),
-  pin_ready: (p) => ({ title: "O seu PIN", body: `PIN ${p.pin}. Telefone do condutor: ${p.driver_phone ?? ""}` }),
+  pin_ready: (p) => ({
+    title: "O seu PIN",
+    body: `PIN ${p.pin}. Telefone do condutor: ${p.driver_phone ?? ""}.${p.wait_until ? ` O condutor espera até ${luanda(p.wait_until)}.` : ""}`,
+  }),
+  driver_arrived: (p) => ({ title: "Condutor no local", body: `O condutor chegou ao ponto de encontro. Espera até ${luanda(p.wait_until)}.` }),
   trip_reminder_2h: () => ({ title: "Partida em 2 horas", body: "Veja os telefones dos passageiros na viagem." }),
   trip_completed_ask: () => ({ title: "Chegou bem?", body: "Confirme a viagem para o condutor receber o pagamento." }),
   payout_released: (p) => ({ title: "Saldo atualizado", body: `+${kz(p.amount_kz)} no seu saldo.` }),

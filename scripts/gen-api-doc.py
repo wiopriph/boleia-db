@@ -43,6 +43,7 @@ RPC_DOC = {
     "update_trip": "Цена/места/детали пока нет оплаченных броней; время пока нет броней; booking_mode всегда.",
     "confirm_trip_intent": "Водитель подтверждает, что едет (ответ на напоминание -24 ч).",
     "cancel_trip": "Отмена поездки водителем с каскадом возвратов по броням.",
+    "driver_arrived": "Водитель на месте встречи (окно departure_at - 3 ч .. departure_at + wait_minutes). Пассажирам driver_arrived; при споре это ответ водителя. -> {driver_arrived_at, wait_until, already?}.",
     "request_booking": "Бронь pending_payment + платёж created. Дальше functions/payments-init.",
     "retry_payment": "Новая попытка оплаты из payment_failed, не больше 3 на бронь.",
     "respond_booking": "Водитель принимает или отклоняет запрос (approval-поездки).",
@@ -50,7 +51,7 @@ RPC_DOC = {
     "cancel_booking": "Отмена брони пассажиром или водителем по таблице возвратов ТЗ раздела 5.",
     "enter_pin": "Водитель вводит PIN пассажира. {ok, attempts_left}; 5 неверных за 10 мин -> RATE_LIMITED.",
     "confirm_trip": "Пассажир: доехал (true -> completed, деньги водителю) или не ехал (false -> disputed).",
-    "mark_no_show": "Водитель: пассажир не пришёл. Нужен PIN другого пассажира, иначе спор.",
+    "mark_no_show": "Водитель: пассажир не пришёл. Не раньше departure_at + wait_minutes (NO_SHOW_TOO_EARLY); нужен PIN другого пассажира, иначе спор.",
     "resolve_dispute": "Admin: completed | refund_full | refund_partial(amount_kz).",
     "send_message": "Сообщение в чат; без conversation_id создаёт чат по trip_id. Лимиты и маскирование в SQL.",
     "mark_read": "Отметить чужие сообщения прочитанными до up_to_message_id.",
@@ -84,7 +85,7 @@ RPC_DOC = {
 
 CLIENT_RPC_ORDER = [
     "search_trips", "price_hint", "upsert_profile", "upsert_vehicle", "register_device", "mark_notifications_read",
-    "publish_trip", "create_return_trip", "update_trip", "confirm_trip_intent", "cancel_trip",
+    "publish_trip", "create_return_trip", "update_trip", "confirm_trip_intent", "driver_arrived", "cancel_trip",
     "request_booking", "retry_payment", "respond_booking", "cancel_quote", "cancel_booking",
     "enter_pin", "confirm_trip", "mark_no_show", "resolve_dispute",
     "send_message", "mark_read", "reveal_contact", "submit_review", "report_user",
@@ -108,7 +109,7 @@ def enums() -> str:
 VIEW_DOC = {
     "trips_public": "Поездки в published/full для поиска и карточки. Без телефона и номера машины.",
     "profiles_public": "Публичный профиль: доверие, рейтинг, бейдж отмен. Без телефона и баланса.",
-    "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок "
+    "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; "
                    "(фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и "
                    "vehicle_*; pin_code появляется с departure_at - 2 ч. cancel_reason объясняет payment_failed и cancelled.",
     "my_conversations": "Чаты текущего пользователя с собеседником, последним сообщением и unread_count (системные тоже считаются).",
@@ -305,8 +306,8 @@ DOC = f"""# Boleia API: контракт для клиентов
 | --- | --- |
 | `upsert_profile(payload)` | `display_name` (2-40), `avatar_url` (путь в `avatars/<uid>/`), `bio` (<= 300), `birth_year`, `chat_level` (enum), `locale`, `payout_method`: `{{"type":"mcx_express","phone":"+244XXXXXXXXX"}}` или `{{"type":"iban","iban":"<25 знаков>","bank":"..."}}`, `terms_accepted: true`, `adult_confirmed: true` (фиксируются один раз). Любой ключ опционален |
 | `upsert_vehicle(payload)` | `id` (если есть - изменить), `make`*, `model`*, `color`, `year`, `plate`, `seats_total`* (1-8), `photo_url`, `status` (`active`/`removed`). Смена `plate` сбрасывает `verified` |
-| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
-| `update_trip(trip_id, payload)` | подмножество: `price_per_seat_kz`, `seats_offered`, `notes`, `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `origin_detail`, `destination_detail`, `departure_at`, `booking_mode`; другие ключи -> `TRIP_FIELD_LOCKED` |
+| `publish_trip(payload)` | `vehicle_id`*, `origin_place_id`*, `destination_place_id`* (только `city`/`town`), `origin_detail`, `destination_detail` (точка посадки, в т. ч. landmark), `departure_at`* (>= now + 2 ч), `seats_offered`* (1-4), `price_per_seat_kz`* (500-100000), `booking_mode` (`instant` по умолчанию), `wait_minutes` (30 | 45 | 60, по умолчанию 30: сколько водитель ждёт опоздавших), `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `notes` (<= 500) |
+| `update_trip(trip_id, payload)` | подмножество: `price_per_seat_kz`, `seats_offered`, `notes`, `luggage`, `allows_smoking`, `allows_pets`, `max_two_in_back`, `origin_detail`, `destination_detail`, `departure_at`, `booking_mode`, `wait_minutes`; другие ключи -> `TRIP_FIELD_LOCKED` |
 | `submit_verification(vehicle_id, doc_urls)` | `id_doc_url`, `licence_url`, `vehicle_photo_url`, `selfie_url` - все четыре, значения как пути `<uid>/<file>` в бакете `verifications` |
 
 **Возвраты**
