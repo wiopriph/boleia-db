@@ -202,6 +202,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 Индексы: `(origin_place_id, destination_place_id, departure_at) where status = 'published'`, `(driver_id, departure_at)`, `(departure_at) where status in ('published','full')` для cron-задач.
 
 Дополнительно в `trips`: `driver_confirmed_at timestamptz` — ответ водителя на напоминание за 24 ч (`confirm_trip_intent`); null к `departure_at − 6 ч` открывает пассажирам бесплатную отмену.
+| reminded\_24h\_at, reminded\_6h\_at, completed\_ask\_at | timestamptz | отметки cron: напоминание −24 ч / −6 ч отправлено, вопрос «Вы доехали?» задан |
 
 ### trip\_stops (этап 2)
 
@@ -236,6 +237,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | passenger\_confirmed\_at | timestamptz | ответ на «Вы доехали?» |
 | driver\_confirmed\_at | timestamptz | — |
 | completed\_at | timestamptz | — |
+| pin\_sent\_at | timestamptz | PIN отправлен в чат (cron за 2 ч; бронь, принятая позже, получает PIN на следующем тике) |
 
 Ограничение: один активный запрос пассажира на поездку — `unique (trip_id, passenger_id) where status in ('pending_payment','requested','accepted','awaiting_confirm')`. Пассажир не может бронировать свою же поездку (триггер). Места резервируются уже в `pending_payment` на 15 минут, чтобы два пассажира не оплатили одно место.
 
@@ -255,6 +257,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | raw\_request, raw\_webhook | jsonb | что отправили и что пришло — для споров с шлюзом |
 | expires\_at | timestamptz | `created + 15 мин`, ставится уже в `request_booking`, чтобы бронь без `payments-init` не держала место; MCX Express даёт клиенту 90 с на подтверждение, остальное — наш запас |
 | paid\_at, refunded\_at | timestamptz | — |
+| refund\_attempts, refund\_failed\_at | smallint, timestamptz | попытки Edge `payments-refund`; после 3 — ручная очередь |
 
 ### ledger\_entries
 
@@ -419,6 +422,17 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 
 Заполняется руками для стартовых маршрутов (Luanda–Benguela ≈ 7 ч, 6–8 тыс. Kz); для пары без строки cron берёт +8 ч, подсказка цены не показывается. После 20 завершённых поездок по паре `price_hint_kz` пересчитывается медианой.
 
+### scheduler\_jobs
+
+| Поле | Тип | Примечание |
+| --- | --- | --- |
+| name | text PK | имя шага `run_scheduler` |
+| last\_run\_at, last\_ok\_at | timestamptz | гейт для часовых/дневных шагов и мониторинг |
+| last\_error | text | текст последней ошибки шага; ошибка одного шага не останавливает остальные |
+| runs | integer | — |
+
+Читает только admin. Тот же журнал ошибок дублируется в `events('scheduler_error')`.
+
 ### Представления (views)
 
 - `trips_public` — поездка + водитель (имя, фото, рейтинг, число поездок, ✓ verified) + машина (марка, цвет) + названия мест; без телефона и номера. Единственное, что читают анонимы.
@@ -527,27 +541,29 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 - `profiles` before update → запрет менять `is_admin`, `status`, `driver_status`, `rating_*`, `balance_kz` не из `security definer`-функций.
 - `auth.users` after insert → создание строки в `profiles` с телефоном.
 
-**Cron (pg\_cron, каждые 5 минут одна функция `run_scheduler()`)**
+**Cron (pg\_cron, каждые 5 минут одна функция `run_scheduler(as_of default now())`)**
+
+Каждый шаг — отдельная функция `sch_<name>`, вызывается через `scheduler_step` в своём блоке исключений: ошибка шага пишется в `scheduler_jobs.last_error` и `events('scheduler_error')`, остальные шаги выполняются. Часовые и дневные шаги гейтятся по `scheduler_jobs.last_ok_at`. Параметр `as_of` подменяет «сейчас» для тестов; денежные переходы используют `now()`. Postgres не ходит во внешние API: шаги, которым нужен шлюз или FCM, готовят данные (`pending_refunds`, `notifications`), а Edge Functions забирают их по своему расписанию (`pg_cron` + `pg_net`, раздел 6, Edge Functions).
 
 | Задача | Когда | Действие |
 | --- | --- | --- |
-| Протухание платежей | `payments.expires_at` прошёл, статус `created` или `pending` | запрос статуса в шлюз (`payments-status`, вебхук мог потеряться); если не оплачено → `payment_failed`, место назад |
+| Протухание платежей | `payments.expires_at + 5 мин` прошёл, статус `created` или `pending` | → `payments.expired`, бронь `payment_failed`, место назад. 5 минут запаса — окно для Edge `payments-status`, которая опрашивает шлюз по `pending` с истёкшим `expires_at` и вызывает `confirm_payment`; оплата, пришедшая после протухания, возвращается автоматически (ветка поздней оплаты) |
 | Протухание запросов | `requested` старше 24 ч **или** `departure_at − 1 ч` наступил | → `expired`, полный возврат |
-| Напоминание −24 ч | `departure_at − 24 ч` | водителю — «подтвердите, что едете» (`confirm_trip_intent`); пассажирам — время и место |
-| Водитель не подтвердил | `departure_at − 6 ч`, нет `driver_confirmed_at` | пассажирам уведомление «водитель не подтвердил, можно отменить бесплатно»; водителю — последнее напоминание |
-| PIN и телефон | `departure_at − 2 ч` | системное сообщение с PIN пассажиру; `reveal_contact` открывается; маскирование в чате выключается |
-| Выезд | `departure_at` | `trip → departed`, `accepted → awaiting_confirm`; оставшиеся `pending_payment` → `payment_failed` |
-| «Вы доехали?» | `departure_at + minutes` из `route_durations` (по умолчанию +8 ч) | уведомление пассажирам с кнопками Да / Нет |
-| Автозавершение быстрое | `awaiting_confirm`, есть `pin_entered_at`, прошло 48 ч после выезда, спора нет | → `completed`, ledger release: водитель с PIN не ждёт неделю |
-| Автозавершение | `awaiting_confirm` без PIN старше 7 дней | → `completed`, ledger release, отзыв открывается |
-| Водитель не приехал | поездка `departed`, ни одного PIN, ≥ 1 `disputed`, водитель не ответил модератору 24 ч | все брони → `cancelled` с `cancelled_by = driver`, полный возврат, санкции |
-| Истечение поездок | `published`/`full` без `accepted`, `departure_at` в прошлом | → `expired` |
-| Возвраты в шлюз | `refunds` с незакрытым `refund_ref` | вызов Edge `payments-refund`, до 3 попыток, дальше — в очередь ручных возвратов в Telegram |
-| Закрытие чатов | `completed + 7 дней`, `cancelled + 24 ч`, без брони — `departure_at + 24 ч` | `conversations.closed_at` |
+| Напоминание −24 ч | `departure_at − 24 ч`, `reminded_24h_at is null` | водителю — «подтвердите, что едете» (`confirm_trip_intent`); пассажирам — время и место; отметка `reminded_24h_at` |
+| Водитель не подтвердил | `departure_at − 6 ч`, нет `driver_confirmed_at`, `reminded_6h_at is null` | пассажирам `driver_unconfirmed` («можно отменить бесплатно», правило уже работает в `cancel_quote`); водителю `trip_reminder_6h`; отметка |
+| PIN и телефон | `departure_at − 2 ч`, по броням `accepted`/`awaiting_confirm` с `pin_sent_at is null` | системное сообщение с PIN в чат; пассажиру `pin_ready` (PIN + телефон водителя, push + SMS); водителю один раз `trip_reminder_2h` со списком пассажиров и телефонами; `pin_sent_at`. Бронь, принятая позже −2 ч, получает PIN на следующем тике. `reveal_contact` и маскирование смотрят на `departure_at − 2 ч` сами |
+| Выезд | `departure_at` | есть `accepted` → `trip → departed`, `accepted → awaiting_confirm`; нет → `expired` + удержания поздних отмен → `forfeit`; оставшиеся `pending_payment` → `payment_failed`, их платежи → `expired` |
+| «Вы доехали?» | `departure_at + minutes` из `route_durations` (по умолчанию +8 ч), `completed_ask_at is null` | `trip_completed_ask` пассажирам в `awaiting_confirm`; отметка |
+| Автозавершение быстрое | `awaiting_confirm`, есть `pin_entered_at`, прошло 48 ч после выезда, спора нет | `complete_booking(b, 'system')`: `completed`, ledger release, `settle_trip` |
+| Автозавершение | `awaiting_confirm` без PIN старше 7 дней | то же |
+| Водитель не приехал | поездка `departed`, ни одного PIN и ни одной `completed`/`no_show`, ≥ 1 спор пассажира (`disputed` с `passenger_confirmed_at`) старше 24 ч, и водитель не ответил: ни сообщения водителя в чате спорной брони после открытия спора, ни PIN | все `awaiting_confirm`/`disputed` → `cancelled`, `cancelled_by = driver`, `cancel_reason = driver_no_show`, полный возврат; поездка → `cancelled`; водителю `cancels_total` +1, `no_shows` +1; удержания → `forfeit`. Если водитель ответил — ждём модератора (`resolve_dispute`) |
+| Истечение поездок | `published`/`full` без `accepted`, `departure_at` в прошлом | → `expired` (внутри шага «Выезд») |
+| Возвраты в шлюз | view `pending_refunds` | не в `run_scheduler`: Edge `payments-refund` по своему `pg_cron`-расписанию читает view, ходит в шлюз, пишет `refund_ref` или `refund_attempts` +1 и `refund_failed_at`; после 3 попыток — ручная очередь в Telegram |
+| Закрытие чатов | бронь `completed`/`no_show` + 7 дней; бронь `cancelled`/`declined`/`expired` + 24 ч; бронь `payment_failed` или без брони — `departure_at + 24 ч`; поездка `cancelled`/`expired` + 24 ч | `conversations.closed_at` |
 | Видимость отзывов | 14 дней после `completed` | `is_visible = true` для одиночных |
-| Чистка | ежедневно | `devices` > 90 дней; документы верификации через 30 дней после решения; тела сообщений старше 12 мес; `events` > 12 мес |
+| Чистка | ежедневно | `devices` без активности > 90 дней удаляются; URL документов верификации обнуляются через 30 дней после решения; тела сообщений старше 12 мес → «[mensagem apagada]» (строка остаётся); `events` > 12 мес удаляются, кроме `scheduler_error` и `reconciliation_mismatch` |
 | `route_stats` | ежечасно | refresh materialized view |
-| Сверка | ежедневно 06:00 | сумма `payments.paid − refunded` за вчера = движение `passenger_escrow` за вчера; расхождение → алерт в Telegram |
+| Сверка | ежедневно | инварианты по всему ledger: `−Σ cash_in = Σ payments.amount_kz (paid/refunded/partially_refunded)`, `Σ refunds = Σ payments.refund_kz`, каждый `op_id` в нуле, `balance_kz = Σ driver_balance`; расхождение → `events('reconciliation_mismatch')` + `reconciliation_alert` всем admin (Telegram-бот I4 читает) |
 
 **Edge Functions**
 
@@ -577,6 +593,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Мои брони | `my_bookings` — с `payments.status` и `conversation_id` | владелец |
 | Мои чаты и сообщения | `my_conversations`, `messages` by `conversation_id` | участники |
 | Кошелёк водителя | `driver_wallet` + `payouts` | владелец |
+| Очередь возвратов в шлюз | `pending_refunds` (`refund_kz > 0`, `refund_ref is null`, `refund_attempts < 3`) | только service role (Edge `payments-refund`) |
 | Моя верификация | `driver_verifications` where `user_id = uid` (без URL документов после решения) | владелец |
 | Контакт второй стороны | только через RPC `reveal_contact` | участники, с `departure_at − 2 ч` |
 | Уведомления in-app | `notifications` where `user_id = uid` and `channel = 'inapp'` | владелец |
@@ -668,7 +685,10 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `booking_cancelled_by_driver` / `trip_cancelled` | пассажир | push + SMS | «Поездка отменена, полный возврат. Поездки на эту дату →» |
 | `refund_done` | пассажир | push | «8 000 Kz возвращены» |
 | `new_message` | получатель | push | превью текста, deep link в чат |
-| `trip_reminder_24h` | все стороны | push | водителю — «подтвердите, что едете» (кнопка); пассажиру — время и место; в −6 ч без подтверждения — пассажиру «водитель не подтвердил, можно отменить бесплатно» |
+| `trip_reminder_24h` | все стороны | push | водителю — «подтвердите, что едете» (кнопка); пассажиру — время и место |
+| `trip_reminder_6h` / `driver_unconfirmed` | водитель / пассажиры | push / SMS | в −6 ч без подтверждения: водителю последнее напоминание; пассажиру «водитель не подтвердил, можно отменить бесплатно» |
+| `booking_expired` | пассажир | push / SMS | «Водитель не ответил, 8 000 Kz возвращаются» |
+| `reconciliation_alert` | admin | push / in-app | расхождение ledger и `payments` |
 | `trip_reminder_2h` + `pin_ready` | все стороны | push + SMS | пассажиру — PIN и телефон водителя; водителю — телефоны пассажиров |
 | `trip_completed_ask` | пассажир | push / SMS | «Вы доехали? Да / Нет» |
 | `dispute_opened` | вторая сторона | push / SMS | «Пассажир сообщил, что не ехал» / «Водитель сообщил, что вы не пришли». Модерация разберёт |
@@ -682,7 +702,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 **Deep links**: `boleia://trip/<id>`, `boleia://booking/<id>` для Flutter; web — `https://boleia.ao/t/<id>` с universal links / app links на те же пути. Все уведомления ведут на экран, где можно сразу сделать действие.
 
-**Тихие часы** — не слать push и SMS с 22:00 до 07:00 по Луанде, кроме платежей, отмен и напоминания за 2 ч; остальное откладывается через `scheduled_for`. Стоимость SMS через castbrick × ожидаемый объём — посчитать до запуска (раздел 14).
+**Тихие часы** — не слать push и SMS с 22:00 до 07:00 по Луанде, кроме платежей, отмен и напоминания за 2 ч; остальное откладывается через `scheduled_for`. Реализовано в `notify()`: срочные типы — `payment_*`, `booking_*`, `dispute_*`, `trip_cancelled`, `refund_done`, `pin_ready`, `trip_reminder_2h`, `reconciliation_alert`; для остальных строки `push`/`sms` получают `scheduled_for` = ближайшие 07:00 Africa/Luanda, `inapp` пишется сразу. Edge `notify` отправляет только строки с `scheduled_for is null or <= now()`. Стоимость SMS через castbrick × ожидаемый объём — посчитать до запуска (раздел 14).
 
 ## 10. Платежи — Multicaixa Express в MVP
 

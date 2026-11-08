@@ -104,6 +104,7 @@ supabase/
     20261110000004_rpc.sql      RPC: рабочие + заглушки I1
     20261110000005_booking_core.sql  брони и платежи: request/retry/confirm/respond/cancel, ledger
     20261110000006_trip_lifecycle.sql  PIN, подтверждение, no-show, споры, отмена поездки, update/return
+    20261110000007_scheduler.sql  run_scheduler(as_of): протухания, выезд, напоминания, PIN, автозавершение, чистка, сверка; pg_cron
   seed.sql
   tests/                        pgTAP
   functions/                    Edge Functions (I1)
@@ -125,6 +126,12 @@ CLAUDE.md                       контекст для Claude Code
 ## I1, шаг 2: жизненный цикл поездки (0006)
 
 `enter_pin`, `confirm_trip`, `mark_no_show`, `resolve_dispute`, `confirm_trip_intent`, `cancel_trip`, `create_return_trip`, `update_trip`; финализация `complete_booking` / `settle_trip` для RPC и cron. План и решения: `docs/plans/0006_trip_lifecycle.md`.
+
+## I1, шаг 3: scheduler (0007)
+
+`run_scheduler(as_of)` в `pg_cron` каждые 5 минут: 14 шагов по таблице cron раздела 6, каждый в своём блоке ошибок, журнал в `scheduler_jobs`. Тихие часы в `notify()`. Очередь возвратов для Edge: view `pending_refunds`. План и решения: `docs/plans/0007_scheduler.md`.
+
+Локально cron тикает в контейнере базы; вручную: `select public.run_scheduler();` или с подменой времени `select public.run_scheduler(now() + interval '1 day');`.
 
 ## Что дальше (I1)
 
