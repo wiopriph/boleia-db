@@ -105,7 +105,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | --- | --- | --- |
 | id | uuid PK | = `auth.users.id` |
 | phone | text unique | E.164, `+244…`; источник истины — auth, здесь копия для поиска |
-| display\_name | text not null | имя + первая буква фамилии, как в BlaBlaCar |
+| display\_name | text not null | имя + первая буква фамилии, например «Ana R.» |
 | avatar\_url | text | Storage; обязателен для публикации поездки, для пассажира — желателен (напоминание при первой брони, не блокер) |
 | bio | text | до 300 символов |
 | birth\_year | smallint | для показа возраста «30 лет», не дата |
@@ -192,7 +192,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | booking\_mode | enum `booking_mode` | `instant` — место подтверждается сразу после оплаты; `approval` — водитель отвечает за 24 ч. Выбирает водитель при публикации, по умолчанию `instant` |
 | luggage | enum `luggage_size` | `small`, `medium`, `large` |
 | allows\_smoking, allows\_pets | bool | — |
-| max\_two\_in\_back | bool | «макс. двое сзади» — любимая опция BlaBlaCar |
+| max\_two\_in\_back | bool | «макс. двое сзади» — не больше двух пассажиров на заднем сиденье |
 | notes | text | до 500 символов |
 | status | enum `trip_status` | см. раздел 5 |
 | published\_at, departed\_at, completed\_at, cancelled\_at | timestamptz | — |
