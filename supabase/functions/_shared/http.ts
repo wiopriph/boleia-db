@@ -45,7 +45,8 @@ export function handler(fn: (req: Request) => Promise<Response>) {
         status: 204,
         headers: {
           "access-control-allow-origin": "*",
-          "access-control-allow-headers": "authorization, apikey, content-type",
+          // supabase-js in the browser also sends x-client-info and x-supabase-api-version
+          "access-control-allow-headers": "authorization, apikey, content-type, x-client-info, x-supabase-api-version",
           "access-control-allow-methods": "GET, POST, OPTIONS",
         },
       });
