@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(144);
+select plan(145);
 
 -- ---------------------------------------------------------------------------
 -- Контекст и хелперы: до смены роли
@@ -148,9 +148,11 @@ select is((select count(*) from public.payments where booking_id = pg_temp.cu('b
 select lives_ok($$ select public.confirm_payment(pg_temp.cj('r3b', 'payment_id'), 'ref-3b', 'expired', null) $$, 'gateway expired');
 select is((select status::text from public.payments where id = pg_temp.cj('r3b', 'payment_id')), 'expired', 'payment expired');
 
+update public.bookings set cancel_reason = 'payment_expired' where id = pg_temp.cu('b3');
 select pg_temp.as_user(pg_temp.cu('ana'));
 insert into ctx values ('r3c', public.retry_payment(pg_temp.cu('b3'))::text);
 reset role;
+select is((select cancel_reason from public.bookings where id = pg_temp.cu('b3')), null, 'retry clears the stale cancel_reason');
 -- payments-init проставил provider_ref, вебхук пришёл с другим
 update public.payments set provider_ref = 'init-3c', status = 'pending' where id = pg_temp.cj('r3c', 'payment_id');
 select throws_ok($$ select public.confirm_payment(pg_temp.cj('r3c', 'payment_id'), 'other-ref', 'failed', null) $$,
