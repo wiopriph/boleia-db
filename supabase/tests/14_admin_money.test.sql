@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(17);
 
 create temp table ctx (k text primary key, v text);
 grant all on ctx to anon, authenticated;
@@ -61,6 +61,9 @@ select is((select (is_manual, refund_attempts::int, payer_name, provider_ref) fr
   (false, 0, 'Ana R.'::text, 'gw-money-1'::text), 'automatic refund: not manual, payer and gateway ref shown');
 select is((select refund_kz from public.admin_refund_queue() where payment_id = pg_temp.cu('pay')),
   (select amount_kz from public.payments where id = pg_temp.cu('pay')), 'full amount to refund');
+select throws_ok($$ select public.admin_mark_refund_manual(pg_temp.cu('pay'), 'MCX-EARLY') $$, 'P0001', 'BOLEIA_PAYMENT_STATUS_INVALID',
+  'manual mark is refused while the refund is in the automatic queue');
+select is((select count(*) from public.admin_refund_queue() where payment_id = pg_temp.cu('pay')), 1::bigint, 'refund stays in the queue');
 reset role;
 
 select public.payment_refund_result(pg_temp.cu('pay'), false), public.payment_refund_result(pg_temp.cu('pay'), false), public.payment_refund_result(pg_temp.cu('pay'), false);

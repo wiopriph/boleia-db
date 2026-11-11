@@ -71,7 +71,7 @@ RPC_DOC = {
     "admin_resolve_report": "Admin: reviewed (в работе) | dismissed.",
     "admin_cancel_trip": "Admin: скрыть поездку = отмена платформой, возвраты 100 %, без cancels_total водителю. -> {cancelled_bookings, refunded_kz}.",
     "admin_cancel_booking": "Admin: отмена одной брони платформой, возврат 100 %, счётчики сторон не меняются. -> {status, refund_kz}.",
-    "admin_mark_refund_manual": "Admin: возврат сделан вручную переводом (ref), закрывает очередь refund_manual.",
+    "admin_mark_refund_manual": "Admin: возврат сделан вручную переводом (ref), закрывает очередь refund_manual. Только для строк с is_manual из admin_refund_queue, иначе PAYMENT_STATUS_INVALID.",
     "admin_upsert_place": "Admin: payload {id?, name, province, slug, kind, lat, lng, aliases[], is_active}; slug уникален.",
     "admin_merge_places": "Admin: слить дубль from_id в into_id (поездки, route_durations, алиасы), from деактивируется.",
     "admin_stats": "Admin: {queues, today, week, health} для дашборда.",

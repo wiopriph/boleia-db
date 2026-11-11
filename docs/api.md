@@ -628,7 +628,7 @@ Admin: отмена одной брони платформой, возврат 1
 
 Возвращает `jsonb`. Кто: authenticated.
 
-Admin: возврат сделан вручную переводом (ref), закрывает очередь refund_manual.
+Admin: возврат сделан вручную переводом (ref), закрывает очередь refund_manual. Только для строк с is_manual из admin_refund_queue, иначе PAYMENT_STATUS_INVALID.
 
 ### `admin_upsert_place(payload jsonb)`
 

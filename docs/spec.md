@@ -541,7 +541,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `admin_resolve_report(report_id, outcome, note?)` | admin | `reviewed` (в работе) или `dismissed` |
 | `admin_cancel_trip(trip_id, reason)` | admin | скрыть поездку: отмена платформой, возвраты 100 %, без `cancels_total` водителю |
 | `admin_cancel_booking(booking_id, reason)` | admin | отмена одной брони платформой, возврат 100 %, счётчики сторон не меняются |
-| `admin_mark_refund_manual(payment_id, ref, note?)` | admin | возврат сделан вручную переводом: закрывает строку очереди `refund_manual` |
+| `admin_mark_refund_manual(payment_id, ref, note?)` | admin | возврат сделан вручную переводом: закрывает строку очереди `refund_manual`; пока возврат в автоочереди (`refund_attempts < 3`) → `PAYMENT_STATUS_INVALID` |
 | `admin_upsert_place(payload)`, `admin_merge_places(from_id, into_id)` | admin | справочник мест: добавить, переименовать, деактивировать, объединить дубли (поездки и `route_durations` переводятся, алиасы объединяются) |
 | `admin_stats()`, `admin_weekly(weeks)` | admin | очереди, сегодня / 7 дней, здоровье; воронка и деньги по неделям, топ маршрутов |
 | `admin_ledger_balances()`, `admin_refund_queue()` | admin | экран денег: баланс и число проводок по счетам ledger; возвраты, не дошедшие до пассажира, с попытками и `provider_ref` (ручные, `refund_attempts ≥ 3`, первыми) |
@@ -793,7 +793,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 - Действия (`admin_moderate`): предупредить, ограничить, приостановить на N дней (снимается cron'ом по сроку), забанить (поездки водителя и брони пассажира отменяются платформой с полным возвратом), снять бан; одобрить/отклонить верификацию; разрешить спор; отметить выплату; скрыть поездку (`admin_cancel_trip`) и отменить бронь (`admin_cancel_booking`) платформой; ручной возврат (`admin_mark_refund_manual`). Редактирование поездки за водителя — не в MVP: водитель правит сам через `update_trip`.
 - Справочник `places`: добавить, переименовать, деактивировать (`admin_upsert_place`), объединить дубли (`admin_merge_places`).
 - Дашборд: `admin_stats()` — очереди, сегодня / 7 дней, здоровье cron и уведомлений; `admin_weekly(weeks)` — воронка, GMV, выручка, возвраты, отмены по сторонам, время ответа водителя и верификации, топ-10 маршрутов по неделям.
-- Деньги: баланс по счетам ledger (`admin_ledger_balances`), очередь выплат и возвратов (`admin_refund_queue`; ручной возврат отмечается только для строк с `is_manual`), выгрузка CSV за период (клиент читает `ledger_entries` под RLS admin).
+- Деньги: баланс по счетам ledger (`admin_ledger_balances`), очередь выплат и возвратов (`admin_refund_queue`; ручной возврат отмечается только для строк с `is_manual`, для остальных RPC отвечает `PAYMENT_STATUS_INVALID`), выгрузка CSV за период (клиент читает `ledger_entries` под RLS admin).
 - Дашборд недели: поездки опубликованы / с оплаченной бронью / завершены; запросы → оплачены → приняты (конверсия); GMV, выручка (`platform_fee`), возвраты; отмены по сторонам; среднее время ответа водителя; среднее время верификации; топ-10 маршрутов.
 
 Каждое действие пишется в `moderation_actions` с причиной; цель получает уведомление `moderation_action`.
