@@ -76,6 +76,8 @@ RPC_DOC = {
     "admin_merge_places": "Admin: слить дубль from_id в into_id (поездки, route_durations, алиасы), from деактивируется.",
     "admin_stats": "Admin: {queues, today, week, health} для дашборда.",
     "admin_weekly": "Admin: по неделям воронка, GMV, fee, возвраты, отмены по сторонам, время ответа водителя и верификации, top_routes.",
+    "admin_ledger_balances": "Admin: баланс и число проводок по каждому счёту ledger; сумма балансов = 0.",
+    "admin_refund_queue": "Admin: возвраты без refund_ref: автоочередь (refund_attempts < 3) и ручные (is_manual, закрывает admin_mark_refund_manual), ручные первыми.",
     "confirm_payment": "Вебхук шлюза (service role): paid/failed/expired по платежу.",
     "payment_initiated": "payments-init создал транзакцию: created -> pending.",
     "payment_refund_result": "payments-refund сходил в шлюз: refund_ref или попытка.",
@@ -92,6 +94,7 @@ CLIENT_RPC_ORDER = [
     "request_payout", "mark_payout", "submit_verification", "review_verification", "delete_me", "is_admin",
     "admin_search_users", "admin_moderate", "admin_resolve_report", "admin_cancel_trip", "admin_cancel_booking",
     "admin_mark_refund_manual", "admin_upsert_place", "admin_merge_places", "admin_stats", "admin_weekly",
+    "admin_ledger_balances", "admin_refund_queue",
 ]
 
 

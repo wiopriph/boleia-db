@@ -1508,6 +1508,11 @@ isOneToOne: false
 "admin_cancel_trip":
 { Args: { "reason": string,"trip_id": string }; Returns: Json
                            },
+"admin_ledger_balances":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "account": Database["public"]['Enums']["ledger_account"],"balance_kz": number,"entries": number
+            }[]
+                           },
 "admin_mark_refund_manual":
 { Args: { "note"?: string,"payment_id": string,"ref": string }; Returns: Json
                            },
@@ -1516,6 +1521,11 @@ isOneToOne: false
                            },
 "admin_moderate":
 { Args: { "action": Database["public"]['Enums']["mod_action"],"days"?: number,"reason": string,"report_id"?: string,"target_id": string }; Returns: undefined
+                           },
+"admin_refund_queue":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "amount_kz": number,"booking_id": string,"is_manual": boolean,"payer_id": string,"payer_name": string,"payer_phone": string,"payment_id": string,"provider_ref": string,"refund_attempts": number,"refund_failed_at": string,"refund_kz": number,"updated_at": string
+            }[]
                            },
 "admin_resolve_report":
 { Args: { "note"?: string,"outcome": string,"report_id": string }; Returns: undefined

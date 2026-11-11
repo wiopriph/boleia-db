@@ -654,6 +654,18 @@ Admin: {queues, today, week, health} для дашборда.
 
 Admin: по неделям воронка, GMV, fee, возвраты, отмены по сторонам, время ответа водителя и верификации, top_routes.
 
+### `admin_ledger_balances()`
+
+Возвращает `TABLE(account ledger_account, balance_kz bigint, entries bigint)`. Кто: authenticated.
+
+Admin: баланс и число проводок по каждому счёту ledger; сумма балансов = 0.
+
+### `admin_refund_queue()`
+
+Возвращает `TABLE(payment_id uuid, booking_id uuid, payer_id uuid, payer_name text, payer_phone text, provider_ref text, amount_kz integer, refund_kz integer, refund_attempts smallint, refund_failed_at timestamp with time zone, is_manual boolean, updated_at timestamp with time zone)`. Кто: authenticated.
+
+Admin: возвраты без refund_ref: автоочередь (refund_attempts < 3) и ручные (is_manual, закрывает admin_mark_refund_manual), ручные первыми.
+
 
 ## RPC только для service role (Edge Functions, cron)
 
