@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(30);
 
 create temp table ctx (name text primary key, value text);
 grant all on ctx to anon, authenticated;
@@ -46,6 +46,17 @@ select is(public.mask_text('ver https://exemplo.ao/x e wa.me/244923456789'), 've
 select is(public.mask_text('Saio às 9, levo 2 malas e cobro 7 000 Kz'), 'Saio às 9, levo 2 malas e cobro 7 000 Kz', 'time, bags and price untouched');
 select is(public.mask_text('9 lugares? Não, só 3. Partida 09:30 de 12/11/2026'), '9 lugares? Não, só 3. Partida 09:30 de 12/11/2026', 'seats and date untouched');
 select is(public.mask_text('ref 1923456789012'), 'ref 1923456789012', 'long number is not cut');
+
+-- 0017: обычные форматы записи
+select is(public.mask_text('liga 923  456  789'), 'liga [oculto]', 'double spaces');
+select is(public.mask_text('923 - 456 - 789'), '[oculto]', 'dashes with spaces around');
+select is(public.mask_text('(923) 456-789'), '[oculto]', 'operator code in parentheses');
+select is(public.mask_text('+244 (923) 456 789'), '[oculto]', 'country code, then parentheses');
+select is(public.mask_text('(+244) 923 456 789'), '[oculto]', 'country code in parentheses');
+select is(public.mask_text('9 000, 12 000, 15 000'), '9 000, 12 000, 15 000', 'comma-separated prices untouched');
+select is(public.mask_text('Preço: 9 000 (ida) e 12 000 (volta), 2 malas'), 'Preço: 9 000 (ida) e 12 000 (volta), 2 malas', 'prices with parentheses untouched');
+select is(public.mask_text('Saio dia 9 (sábado) - 12h30 - 2 lugares'), 'Saio dia 9 (sábado) - 12h30 - 2 lugares', 'day, time and seats untouched');
+select is(public.mask_text('IBAN AO06 0040 0000 9234 5678 9012 3'), 'IBAN AO06 0040 0000 9234 5678 9012 3', 'IBAN is not cut');
 
 -- ---------------------------------------------------------------------------
 -- 2. Повторная бронь забирает разговор и открывает его
