@@ -231,7 +231,8 @@ uri = "pg-functions://postgres/public/before_user_created_hook"
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
 
-# Send SMS Hook -> Edge send-sms -> castbrick. Включать, когда есть ключ castbrick и секрет хука:
+# Send SMS Hook -> Edge send-sms -> castbrick. В облаке включается в Dashboard (uri другой), порядок
+# в supabase/functions/README.md. Локально раскомментировать только для проверки функции:
 # [auth.hook.send_sms]
 # enabled = true
 # uri = "http://host.docker.internal:54321/functions/v1/send-sms"

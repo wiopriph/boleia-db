@@ -20,16 +20,22 @@ const logPush: PushProvider = {
   },
 };
 
-// castbrick: HTTP API провайдера; формат тела уточняется по их документации, меняется только здесь
+// castbrick (Ангола, оплата в AOA): POST /v1/sms/send, Bearer <key>, тело {recipients, content, senderId}.
+// Формат взят из рабочей интеграции amoda (в проде с 2026-09-13). senderId должен быть заведён в кабинете.
+// Таймаут короче 5 секунд: столько Supabase Auth ждёт ответа Send SMS Hook.
+const CASTBRICK_TIMEOUT_MS = 4500;
+
 function castbrick(apiKey: string): SmsProvider {
-  const url = Deno.env.get("CASTBRICK_URL") ?? "https://api.castbrick.com/v1/sms";
+  const url = Deno.env.get("CASTBRICK_URL") ?? "https://api.castbrick.co/v1/sms/send";
   const sender = Deno.env.get("CASTBRICK_SENDER") ?? "Boleia";
   return {
     async send(phone, text) {
+      const recipient = phone.startsWith("+") ? phone : `+${phone}`;
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ to: phone, from: sender, message: text }),
+        signal: AbortSignal.timeout(CASTBRICK_TIMEOUT_MS),
+        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ recipients: [recipient], content: text, senderId: sender }),
       });
       if (!res.ok) throw new Error(`castbrick ${res.status}: ${(await res.text()).slice(0, 200)}`);
     },
@@ -100,6 +106,11 @@ function fcm(sa: ServiceAccount): PushProvider {
 export function smsProvider(): SmsProvider {
   const key = Deno.env.get("CASTBRICK_API_KEY");
   return key ? castbrick(key) : logSms;
+}
+
+// true, когда SMS реально уходят и стоят денег (не адаптер log)
+export function hasRealSmsProvider(): boolean {
+  return Boolean(Deno.env.get("CASTBRICK_API_KEY"));
 }
 
 export function pushProvider(): PushProvider {
