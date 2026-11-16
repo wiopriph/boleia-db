@@ -231,12 +231,8 @@ uri = "pg-functions://postgres/public/before_user_created_hook"
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
 
-# Send SMS Hook -> Edge send-sms -> castbrick. В облаке включается в Dashboard (uri другой), порядок
-# в supabase/functions/README.md. Локально раскомментировать только для проверки функции:
-# [auth.hook.send_sms]
-# enabled = true
-# uri = "http://host.docker.internal:54321/functions/v1/send-sms"
-# secrets = "env(SEND_SMS_HOOK_SECRET)"
+# Send SMS Hook -> Edge send-sms -> castbrick. Локально выключен: номера из test_otp до хука не доходят,
+# а uri у облака свой. Для облачного проекта хук объявлен в [remotes.production] в конце файла.
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 # Placeholder provider: CLI 3.x disables phone login without one. Real SMS go via send-sms (I1).
@@ -354,3 +350,14 @@ s3_region = "env(S3_REGION)"
 s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
+
+
+# Настройки только облачного проекта: применяются при `supabase config push`, локальный стек не трогают.
+[remotes.production]
+project_id = "mpeqiodvsmglqaizpfjq"
+
+# Секрет из SEND_SMS_HOOK_SECRET в окружении на момент push; тот же должен лежать в секретах функций.
+[remotes.production.auth.hook.send_sms]
+enabled = true
+uri = "https://mpeqiodvsmglqaizpfjq.supabase.co/functions/v1/send-sms"
+secrets = "env(SEND_SMS_HOOK_SECRET)"

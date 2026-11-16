@@ -3,7 +3,7 @@
 // notification_delivered (ТЗ разделы 6, 9).
 import { handler, HttpError, json, readJson } from "../_shared/http.ts";
 import { isServiceCall, rpc, type Service, serviceClient } from "../_shared/supabase.ts";
-import { pushProvider, smsProvider } from "../_shared/providers.ts";
+import { notificationSmsProvider, pushProvider } from "../_shared/providers.ts";
 import { textFor } from "../_shared/texts.ts";
 
 interface Row {
@@ -14,7 +14,7 @@ interface Row {
   payload: Record<string, unknown>;
 }
 
-const sms = smsProvider();
+const sms = notificationSmsProvider();
 const push = pushProvider();
 
 async function deliver(sb: Service, n: Row): Promise<void> {

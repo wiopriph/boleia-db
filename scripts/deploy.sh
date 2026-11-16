@@ -6,6 +6,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# [remotes.production] в config.toml читает секрет хука из окружения: без него CLI отказывается
+# работать с облачным проектом ("Invalid hook config")
+if [[ -f supabase/functions/.env.cloud ]]; then
+  SEND_SMS_HOOK_SECRET=$(grep '^SEND_SMS_HOOK_SECRET=' supabase/functions/.env.cloud | cut -d= -f2- || true)
+  export SEND_SMS_HOOK_SECRET
+fi
+
 REF=${1:?usage: scripts/deploy.sh <project-ref> [--seed]}
 SEED=${2:-}
 PW_ARGS=()

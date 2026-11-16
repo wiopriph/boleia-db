@@ -27,7 +27,7 @@ const CASTBRICK_TIMEOUT_MS = 4500;
 
 function castbrick(apiKey: string): SmsProvider {
   const url = Deno.env.get("CASTBRICK_URL") ?? "https://api.castbrick.co/v1/sms/send";
-  const sender = Deno.env.get("CASTBRICK_SENDER") ?? "Boleia";
+  const sender = Deno.env.get("SMS_SENDER_ID") ?? Deno.env.get("CASTBRICK_SENDER") ?? "Boleia";
   return {
     async send(phone, text) {
       const recipient = phone.startsWith("+") ? phone : `+${phone}`;
@@ -103,14 +103,37 @@ function fcm(sa: ServiceAccount): PushProvider {
   };
 }
 
+// SMS_PROVIDER = castbrick | log (имена как в amoda). Без переменной: castbrick, если есть ключ.
+// log выключает отправку, не трогая ключ: код уходит в лог функции.
+function smsProviderName(): "castbrick" | "log" {
+  const declared = (Deno.env.get("SMS_PROVIDER") ?? "").trim().toLowerCase();
+  if (declared === "log") {
+    return "log";
+  }
+  return declared === "castbrick" || Deno.env.get("CASTBRICK_API_KEY") ? "castbrick" : "log";
+}
+
+const missingKeySms: SmsProvider = {
+  send: () => Promise.reject(new Error("SMS_PROVIDER=castbrick, but CASTBRICK_API_KEY is not set")),
+};
+
 export function smsProvider(): SmsProvider {
+  if (smsProviderName() === "log") {
+    return logSms;
+  }
   const key = Deno.env.get("CASTBRICK_API_KEY");
-  return key ? castbrick(key) : logSms;
+  return key ? castbrick(key) : missingKeySms;
+}
+
+// SMS-уведомления включаются отдельно (SMS_NOTIFICATIONS=on). На общей тестовой базе они ушли бы
+// на несуществующие номера seed-пользователей за наш счёт; коды входа от этого флага не зависят.
+export function notificationSmsProvider(): SmsProvider {
+  return Deno.env.get("SMS_NOTIFICATIONS") === "on" ? smsProvider() : logSms;
 }
 
 // true, когда SMS реально уходят и стоят денег (не адаптер log)
 export function hasRealSmsProvider(): boolean {
-  return Boolean(Deno.env.get("CASTBRICK_API_KEY"));
+  return smsProviderName() === "castbrick";
 }
 
 export function pushProvider(): PushProvider {

@@ -36,7 +36,9 @@ scripts/edge-smoke.sh               # сквозной сценарий прот
 | `GATEWAY_BASE_URL`, `GATEWAY_API_KEY`, `GATEWAY_SECRET` | шлюз Multicaixa Express; пусто = мок |
 | `PUBLIC_FUNCTIONS_URL` | публичный адрес функций для `callback_url` вебхука (в облаке `https://<ref>.supabase.co/functions/v1`) |
 | `CASTBRICK_API_KEY` | ключ castbrick для SMS (OTP и уведомления); пусто = лог |
-| `CASTBRICK_SENDER` | имя отправителя, по умолчанию `Boleia`; должно быть заведено в кабинете castbrick |
+| `SMS_PROVIDER` | `castbrick` или `log`; без переменной castbrick включается наличием ключа. `log` выключает отправку, не трогая ключ |
+| `SMS_NOTIFICATIONS` | `on` включает SMS-уведомления через тот же провайдер; без него `notify` пишет SMS в лог. Коды входа от флага не зависят |
+| `SMS_SENDER_ID` | имя отправителя (старое имя `CASTBRICK_SENDER` тоже читается), по умолчанию `Boleia`; должно быть одобрено в кабинете castbrick |
 | `CASTBRICK_URL` | адрес API, по умолчанию `https://api.castbrick.co/v1/sms/send`; меняется только для тестов |
 | `FCM_SERVICE_ACCOUNT_JSON` | push через FCM HTTP v1; пусто = лог |
 | `SEND_SMS_HOOK_SECRET` | секрет Auth Send SMS Hook (`v1,whsec_...`, несколько через `\|` на время ротации); обязателен, когда задан `CASTBRICK_API_KEY` |
@@ -53,20 +55,25 @@ scripts/edge-smoke.sh               # сквозной сценарий прот
 Функция публичная, поэтому без подписи standard-webhooks работает только адаптер `log`. Если ключ
 castbrick задан, а секрета хука нет, она отвечает 500: иначе любой мог бы слать SMS за наш счёт.
 
-Включение в облаке, по порядку:
+Включено в облаке 2026-11-16. Как это собрано:
 
-1. Кабинет castbrick: ключ API, заведённый отправитель `Boleia`, положительный баланс.
-2. Dashboard -> Authentication -> Hooks -> Send SMS hook: HTTPS, адрес
-   `https://<ref>.supabase.co/functions/v1/send-sms`, сгенерировать секрет.
-3. `supabase secrets set CASTBRICK_API_KEY=... SEND_SMS_HOOK_SECRET='v1,whsec_...'` (или строки в
-   `supabase/functions/.env.cloud` и `scripts/deploy.sh`).
-4. `supabase functions deploy send-sms`.
-5. Authentication -> Sign In / Providers -> Phone: провайдер включён (любой, хук его перекрывает), срок
-   жизни кода 5-10 минут, длина 6. Rate limits: SMS в час небольшим числом.
-6. Проверка: вход с настоящим номером; ошибки доставки видны в логах Auth и функции `send-sms`.
+- Секреты функций (`supabase secrets`): `CASTBRICK_API_KEY`, `SMS_PROVIDER=castbrick`, `SMS_SENDER_ID`,
+  `SEND_SMS_HOOK_SECRET`. Источник - `supabase/functions/.env.cloud` (в `.gitignore`), его же читает
+  `scripts/deploy.sh`.
+- Хук объявлен в `config.toml` в блоке `[remotes.production]`: он действует только для облачного
+  проекта и применяется командой `supabase config push`. Локальный стек его не видит.
+- Секрет хука один на обе стороны. Любая команда CLI против облачного проекта (`functions deploy`,
+  `config push`) требует его в окружении, иначе падает с "Invalid hook config":
+
+  ```bash
+  export SEND_SMS_HOOK_SECRET="$(grep '^SEND_SMS_HOOK_SECRET=' supabase/functions/.env.cloud | cut -d= -f2-)"
+  ```
+
+- Ротация секрета: новое значение в `.env.cloud`, затем `supabase secrets set --env-file ...` и
+  `supabase config push`. На время смены функция принимает несколько секретов через `|`.
+- Выключить отправку, не трогая ключ: `supabase secrets set SMS_PROVIDER=log`.
+- Настройки в Dashboard: срок жизни кода 5-10 минут, длина 6, лимит SMS в час небольшим числом.
+- Ошибки доставки видны в логах Auth и функции `send-sms`.
 
 Номера из `auth.sms.test_otp` до хука не доходят и SMS не тратят. Перед запуском их нужно убрать:
 среди них админ с кодом `123456`.
-
-Хук в `config.toml` закомментирован: его `uri` разный локально и в облаке, а `scripts/deploy.sh`
-делает `supabase config push`. Локально он нужен только для проверки самой функции.
