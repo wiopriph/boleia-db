@@ -1546,7 +1546,7 @@ isOneToOne: false
 { Args: { "event": Json }; Returns: Json
                            },
 "calc_fee_kz":
-{ Args: { "price_total_kz": number }; Returns: number
+{ Args: { "price_per_seat_kz": number,"seats": number }; Returns: number
                            },
 "cancel_booking":
 { Args: { "booking_id": string,"reason"?: string }; Returns: Json

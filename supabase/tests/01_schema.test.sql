@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(45);
+select plan(47);
 
 -- таблицы
 select has_table('public', t, 'table ' || t || ' exists') from unnest(array[
@@ -46,10 +46,12 @@ select throws_ok(
   'P0001', 'BOLEIA_LEDGER_IMMUTABLE', 'ledger rows cannot be deleted'
 );
 
--- fee formula: max(10%, 1000) один раз на бронь
-select is(public.calc_fee_kz(28000), 2800, 'fee 10% above minimum');
-select is(public.calc_fee_kz(6000),  1000, 'fee hits 1000 minimum');
-select is(public.calc_fee_kz(7000),  1000, 'fee 7000 -> 1000');
+-- fee formula: max(10%, 1000) за каждое место
+select is(public.calc_fee_kz(12000, 1), 1200, 'fee 10% above minimum');
+select is(public.calc_fee_kz(7000, 1),  1000, 'fee hits 1000 minimum');
+select is(public.calc_fee_kz(7000, 2),  2000, 'minimum applies to every seat: 2 x 7000 -> 2000');
+select is(public.calc_fee_kz(12000, 2), 2400, 'seats above the minimum: 2 x 12000 -> 2400');
+select is(public.calc_fee_kz(3000, 3),  3000, 'cheap seats: 3 x 3000 -> 3000');
 
 select * from finish();
 rollback;

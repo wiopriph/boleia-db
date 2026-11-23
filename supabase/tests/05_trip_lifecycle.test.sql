@@ -257,7 +257,7 @@ select throws_ok($$ select public.confirm_trip_intent(pg_temp.cu('p7c')) $$, 'P0
 reset role;
 select is((select (status::text, cancel_reason) from public.trips where id = pg_temp.cu('p7c')), ('cancelled'::text, 'Avaria no carro'::text), 'trip cancelled');
 select is((select status::text from public.bookings where id = pg_temp.cu('a6b')), 'payment_failed', 'pending booking -> payment_failed');
-select is((select (status::text, cancelled_by::text, refund_kz) from public.bookings where id = pg_temp.cu('t6')), ('cancelled'::text, 'driver'::text, 15400), 'paid booking refunded in full');
+select is((select (status::text, cancelled_by::text, refund_kz) from public.bookings where id = pg_temp.cu('t6')), ('cancelled'::text, 'driver'::text, 16000), 'paid booking refunded in full');
 select is(public.escrow_balance_kz(pg_temp.cu('t6')), 0, 'Teresa escrow refunded');
 select is(public.escrow_balance_kz(pg_temp.cu('a6')), 0, 'Ana hold forfeited');
 select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('a6') and memo like 'forfeit:%' and account = 'platform_fee'), 4000, 'forfeit to platform');

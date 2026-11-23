@@ -71,8 +71,8 @@ select throws_ok($$ select public.request_booking(pg_temp.cu('trip_i'), 1) $$,
   'P0001', 'BOLEIA_OWN_TRIP', 'driver cannot book own trip');
 
 reset role;
-select is(pg_temp.c('r1')::jsonb ->> 'amount_kz', '15400', 'amount = 2 x 7000 + fee 1400');
-select is(pg_temp.c('r1')::jsonb ->> 'fee_kz', '1400', 'fee snapshot');
+select is(pg_temp.c('r1')::jsonb ->> 'amount_kz', '16000', 'amount = 2 x 7000 + fee 2 x 1000');
+select is(pg_temp.c('r1')::jsonb ->> 'fee_kz', '2000', 'fee snapshot: minimum per seat');
 select is((select status::text from public.bookings where id = pg_temp.cu('b1')), 'pending_payment', 'booking pending_payment');
 select is((select status::text from public.payments where id = pg_temp.cu('p1')), 'created', 'payment created');
 select ok((select expires_at > now() + interval '14 minutes' from public.payments where id = pg_temp.cu('p1')), 'expires_at set at request');
@@ -96,8 +96,8 @@ select is((select status::text from public.payments where id = pg_temp.cu('p1'))
 select is((select provider_ref from public.payments where id = pg_temp.cu('p1')), 'ref-1', 'provider_ref stored');
 select is((select raw_webhook ->> 'gw' from public.payments where id = pg_temp.cu('p1')), 'ok', 'raw webhook stored');
 select is((select count(*) from public.ledger_entries where booking_id = pg_temp.cu('b1')), 2::bigint, 'payment op has two rows');
-select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('b1') and account = 'cash_in'), -15400, 'cash_in row');
-select is(public.escrow_balance_kz(pg_temp.cu('b1')), 15400, 'escrow holds the paid amount');
+select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('b1') and account = 'cash_in'), -16000, 'cash_in row');
+select is(public.escrow_balance_kz(pg_temp.cu('b1')), 16000, 'escrow holds the paid amount');
 
 -- идемпотентность и валидация вебхука
 select lives_ok($$ select public.confirm_payment(pg_temp.cu('p1'), 'ref-1', 'paid', '244900000005') $$, 'repeated webhook is a no-op');
@@ -226,13 +226,13 @@ select is((select seats_available from public.trips where id = pg_temp.cu('trip_
 update public.trips set departure_at = now() + interval '10 hours', driver_confirmed_at = now() where id = pg_temp.cu('trip_i');
 select pg_temp.as_user(pg_temp.cu('ana'));
 select is(public.cancel_quote(pg_temp.cu('b1')) - 'counter',
-  '{"refund_kz": 7700, "gateway_fee_kz": 0, "held_kz": 7700, "rule": "passenger_late"}'::jsonb, 'quote: late cancel = 50%');
+  '{"refund_kz": 8000, "gateway_fee_kz": 0, "held_kz": 8000, "rule": "passenger_late"}'::jsonb, 'quote: late cancel = 50%');
 insert into ctx values ('c1', public.cancel_booking(pg_temp.cu('b1'))::text);
 reset role;
-select is(pg_temp.c('c1')::jsonb - 'status', '{"refund_kz": 7700, "held_kz": 7700, "rule": "passenger_late"}'::jsonb, 'late cancel result');
-select is(public.escrow_balance_kz(pg_temp.cu('b1')), 7700, 'half stays in escrow');
-select is((select refund_kz from public.bookings where id = pg_temp.cu('b1')), 7700, 'booking refund_kz = half');
-select is((select refund_kz from public.payments where id = pg_temp.cu('p1')), 7700, 'payment refund_kz = half');
+select is(pg_temp.c('c1')::jsonb - 'status', '{"refund_kz": 8000, "held_kz": 8000, "rule": "passenger_late"}'::jsonb, 'late cancel result');
+select is(public.escrow_balance_kz(pg_temp.cu('b1')), 8000, 'half stays in escrow');
+select is((select refund_kz from public.bookings where id = pg_temp.cu('b1')), 8000, 'booking refund_kz = half');
+select is((select refund_kz from public.payments where id = pg_temp.cu('p1')), 8000, 'payment refund_kz = half');
 select is((select cancels_total from public.profiles where id = pg_temp.cu('ana')), 2::smallint, 'passenger cancels_total +1');
 select is((select (status::text, seats_available) from public.trips where id = pg_temp.cu('trip_i')), ('published'::text, 3::smallint), 'trip back to published, seats released');
 
@@ -260,7 +260,7 @@ select pg_temp.as_user(pg_temp.cu('teresa'));
 insert into ctx values ('c7', public.cancel_booking(pg_temp.cu('b7'), 'Avaria')::text);
 reset role;
 select is(pg_temp.c('c7')::jsonb ->> 'rule', 'driver_decline', 'driver cancel on requested = decline');
-select is((select (status::text, refund_kz) from public.bookings where id = pg_temp.cu('b7')), ('declined'::text, 15400), 'declined, full refund');
+select is((select (status::text, refund_kz) from public.bookings where id = pg_temp.cu('b7')), ('declined'::text, 16000), 'declined, full refund');
 select is((select cancels_total from public.profiles where id = pg_temp.cu('teresa')), 0::smallint, 'no sanction for decline');
 
 -- водитель на принятую бронь: 100 %, счётчик +1
@@ -362,11 +362,11 @@ select throws_ok($$ select public.ledger_refund(b, 1, 0) from public.bookings b 
 select throws_ok($$ update public.ledger_entries set amount_kz = 0 where booking_id = pg_temp.cu('b1') $$,
   'P0001', 'BOLEIA_LEDGER_IMMUTABLE', 'ledger is insert-only');
 
--- release удержанной половины b1: 7700 -> водитель 7000, платформа 700
-select lives_ok($$ select public.ledger_release(b, 7700) from public.bookings b where id = pg_temp.cu('b1') $$, 'release held half');
+-- release удержанной половины b1: 8000 -> водитель 7000, платформа 1000
+select lives_ok($$ select public.ledger_release(b, 8000) from public.bookings b where id = pg_temp.cu('b1') $$, 'release held half');
 select is(public.escrow_balance_kz(pg_temp.cu('b1')), 0, 'escrow emptied by release');
 select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('b1') and account = 'driver_balance'), 7000, 'driver gets price share');
-select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('b1') and account = 'platform_fee'), 700, 'platform gets fee share');
+select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('b1') and account = 'platform_fee'), 1000, 'platform gets fee share');
 select is((select balance_kz from public.profiles where id = pg_temp.cu('joao')), 7000, 'balance_kz cache synced through guard');
 select lives_ok($$ select public.ledger_forfeit(b, 8000) from public.bookings b where id = pg_temp.cu('b9') $$, 'forfeit');
 select is(public.escrow_balance_kz(pg_temp.cu('b9')), 0, 'escrow emptied by forfeit');
