@@ -230,7 +230,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | fee\_kz | integer | seats × max(10 % × price\_per\_seat\_kz, 1 000); минимум считается на каждое место: 2 × 7 000 = 14 000 → 2 000; 2 × 3 000 = 6 000 → 2 000; 2 × 12 000 = 24 000 → 2 400. Снимок на момент запроса |
 | message | text | «Буду с чемоданом» |
 | status | enum `booking_status` | см. раздел 5 |
-| pin\_code | char(4) | генерируется при `accepted`, показывается пассажиру с `departure_at − 2 ч` |
+| pin\_code | char(4) | генерируется при `accepted`, показывается только пассажиру брони с `departure_at − 2 ч` (`my_bookings.pin_code`, `pin_ready`). Водитель не получает его ни в чате, ни в views, ни из таблицы: колонка закрыта грантом (миграция 0021) |
 | pin\_entered\_at | timestamptz | водитель ввёл PIN = пассажир сел |
 | requested\_at | timestamptz | момент успешной оплаты |
 | responded\_at | timestamptz | момент accept/decline |
@@ -241,7 +241,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | passenger\_confirmed\_at | timestamptz | ответ на «Вы доехали?» |
 | driver\_confirmed\_at | timestamptz | — |
 | completed\_at | timestamptz | — |
-| pin\_sent\_at | timestamptz | PIN отправлен в чат (cron за 2 ч; бронь, принятая позже, получает PIN на следующем тике) |
+| pin\_sent\_at | timestamptz | PIN выдан пассажиру: `pin_ready` и системное сообщение в чат без цифр (cron за 2 ч; бронь, принятая позже, получает PIN на следующем тике) |
 
 Ограничение: один активный запрос пассажира на поездку — `unique (trip_id, passenger_id) where status in ('pending_payment','requested','accepted','awaiting_confirm')`. Пассажир не может бронировать свою же поездку (триггер). Места резервируются уже в `pending_payment` на 15 минут, чтобы два пассажира не оплатили одно место.
 
@@ -312,7 +312,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | --- | --- | --- |
 | id | bigint identity | монотонный порядок |
 | conversation\_id | uuid FK conversations | — |
-| sender\_id | uuid FK profiles | null = системное («Бронь принята», «PIN: 4821») |
+| sender\_id | uuid FK profiles | null = системное ("Бронь принята", "PIN готов"). PIN в сообщения не пишется никогда: чат общий с водителем |
 | body | text | до 1 000 символов; только текст в MVP |
 | masked | bool | true, если из текста вырезаны телефон/ссылка |
 | read\_at | timestamptz | — |
@@ -551,7 +551,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 - `bookings` after insert/update → пересчёт `trips.seats_available` (резерв считается уже с `pending_payment`) и перевод `published ↔ full`.
 - `bookings` → `requested` → найти `conversations` по (trip\_id, passenger\_id) или создать, проставить `booking_id` + системное сообщение «Запрос оплачен, водитель ответит за 24 ч».
-- `bookings` → `accepted` → системное сообщение с PIN отправляется в чат только в `departure_at − 2 ч` (cron), не триггером.
+- `bookings` → `accepted` → PIN выдаётся пассажиру только в `departure_at − 2 ч` (cron), не триггером: `pin_ready` с PIN уходит пассажиру, в чат - системное сообщение без цифр.
 - `ledger_entries` after insert → пересчёт `profiles.balance_kz`; before update/delete → raise.
 - `messages` before insert → маскирование телефонов (`+244`/`00244`/`244` и 9 цифр либо мобильный на 9, между цифрами допускается до трёх символов из пробела, точки, дефиса и скобок: `923 456 789`, `(923) 456-789`, `+244 (923) 456 789`; запятая и слэш разделителями не считаются, чтобы не резать списки цен и даты), `wa.me`, `http(s)://` → «[oculto]», `masked = true`; пока у чата нет брони в `accepted`/`awaiting_confirm`/`completed`/`no_show`/`disputed` или до `departure_at − 2 ч`; системные сообщения не маскируются. After insert: третье замаскированное сообщение одного отправителя в чате → `reports(reporter_id = null, cash_offer)` один раз на чат и отправителя, админам `report_opened`.
 - `reviews` after insert → пересчёт `profiles.rating_avg`, `rating_count`; `is_visible`, если второй отзыв уже есть.
@@ -570,7 +570,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Протухание запросов | `requested` старше 24 ч **или** `departure_at − 1 ч` наступил | → `expired`, полный возврат |
 | Напоминание −24 ч | `departure_at − 24 ч`, `reminded_24h_at is null` | водителю — «подтвердите, что едете» (`confirm_trip_intent`); пассажирам — время и место; отметка `reminded_24h_at` |
 | Водитель не подтвердил | `departure_at − 6 ч`, нет `driver_confirmed_at`, `reminded_6h_at is null` | пассажирам `driver_unconfirmed` («можно отменить бесплатно», правило уже работает в `cancel_quote`); водителю `trip_reminder_6h`; отметка |
-| PIN и телефон | `departure_at − 2 ч`, по броням `accepted`/`awaiting_confirm` с `pin_sent_at is null` | системное сообщение с PIN в чат; пассажиру `pin_ready` (PIN + телефон водителя, push + SMS); водителю один раз `trip_reminder_2h` со списком пассажиров и телефонами; `pin_sent_at`. Бронь, принятая позже −2 ч, получает PIN на следующем тике. `reveal_contact` и маскирование смотрят на `departure_at − 2 ч` сами |
+| PIN и телефон | `departure_at − 2 ч`, по броням `accepted`/`awaiting_confirm` с `pin_sent_at is null` | системное сообщение в чат о том, что PIN готов (без самого PIN: чат читает и водитель); пассажиру `pin_ready` (PIN + телефон водителя, push + SMS); водителю один раз `trip_reminder_2h` со списком пассажиров и телефонами; `pin_sent_at`. Бронь, принятая позже −2 ч, получает PIN на следующем тике. `reveal_contact` и маскирование смотрят на `departure_at − 2 ч` сами |
 | Выезд | `departure_at` | есть `accepted` → `trip → departed`, `accepted → awaiting_confirm`; нет → `expired` + удержания поздних отмен → `forfeit`; оставшиеся `pending_payment` → `payment_failed`, их платежи → `expired` |
 | «Вы доехали?» | `departure_at + minutes` из `route_durations` (по умолчанию +8 ч), `completed_ask_at is null` | `trip_completed_ask` пассажирам в `awaiting_confirm`; отметка |
 | Автозавершение быстрое | `awaiting_confirm`, есть `pin_entered_at`, прошло 48 ч после выезда, спора нет | `complete_booking(b, 'system')`: `completed`, ledger release, `settle_trip` |
@@ -816,7 +816,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Опубликовать поездку | P0 | мастер в 4 шага: маршрут + точки, дата/время, места + цена (подсказка по медиане маршрута), опции (багаж, «máx. 2 atrás»; курение и животные в UI нет — раздел 15), время ожидания опоздавших (30 / 45 / 60); превью → публикация; выбор режима брони (автобронь / подтверждать вручную); для unverified — плашка «пройдите верификацию: ✓ и выше в выдаче» | `publish_trip` |
 | Мои поездки (водитель) | P0 | «Предстоящие / Прошлые»; в карточке — оплаченные запросы с принять/отклонить, кнопка в чат, ввод PIN в день поездки, «не пришёл», отмена | `trips` + `bookings`, `respond_booking`, `enter_pin`, `mark_no_show`, `cancel_trip` |
 | Мои брони (пассажир) | P0 | статус с деньгами («7 700 Kz удержано», «возвращено»), чат, PIN и телефон в день поездки, отмена с показом суммы возврата, «Вы доехали?» | `my_bookings`, `cancel_booking`, `confirm_trip`, `reveal_contact` |
-| Чаты | P0 | список чатов с непрочитанными; экран чата: сообщения, системные вставки (статусы, PIN), плашка «номера скрыты до дня поездки» | `my_conversations`, `messages`, `send_message`, `mark_read` |
+| Чаты | P0 | список чатов с непрочитанными; экран чата: сообщения, системные вставки (статусы, "PIN готов" без цифр), плашка «номера скрыты до дня поездки» | `my_conversations`, `messages`, `send_message`, `mark_read` |
 | Кошелёк (водитель) | P0 | баланс, «в ожидании» по будущим поездкам, история начислений, кнопка «Levantar», список выплат | `driver_wallet`, `request_payout`, `payouts` |
 | Оценить | P0 | звёзды, теги, комментарий; открывается из уведомления | `submit_review` |
 | Уведомления in-app | P1 | список, непрочитанные | `notifications` |

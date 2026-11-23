@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(103);
+select plan(104);
 
 -- ---------------------------------------------------------------------------
 -- Контекст и хелперы. Сид-поездки отменяются, сценарии строят свои с выездом D = now() + 100 дней,
@@ -179,7 +179,9 @@ select pg_temp.run('r2h', pg_temp.d('-2 hours'));
 select ok((select pin_sent_at is not null from public.bookings where id = pg_temp.cu('a_G')), 'pin_sent_at set');
 select is((select count(*) from public.messages m join public.conversations c on c.id = m.conversation_id
            where c.booking_id = pg_temp.cu('a_G') and m.sender_id is null
-             and m.body like '%' || (select pin_code from public.bookings where id = pg_temp.cu('a_G')) || '%'), 1::bigint, 'PIN posted in chat');
+             and m.body like '%' || (select pin_code from public.bookings where id = pg_temp.cu('a_G')) || '%'), 0::bigint, 'PIN digits never reach the shared chat');
+select is((select count(*) from public.messages m join public.conversations c on c.id = m.conversation_id
+           where c.booking_id = pg_temp.cu('a_G') and m.sender_id is null and m.body like 'O PIN de embarque já está disponível%'), 1::bigint, 'chat says the PIN is ready');
 select is((select payload ->> 'pin' from public.notifications where type = 'pin_ready' and payload ->> 'booking_id' = pg_temp.c('a_G') and channel = 'inapp'),
   (select pin_code::text from public.bookings where id = pg_temp.cu('a_G')), 'pin_ready carries the PIN');
 select is((select payload ->> 'driver_phone' from public.notifications where type = 'pin_ready' and payload ->> 'booking_id' = pg_temp.c('a_G') and channel = 'inapp'),

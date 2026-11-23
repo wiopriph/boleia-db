@@ -43,7 +43,7 @@
 
 **Отмена.** `cancel_quote(booking_id)` показывает сумму и правило -> `cancel_booking(booking_id, reason)`.
 
-**День поездки.** С `departure_at - 2 ч` в `my_bookings.pin_code` появляется PIN, `reveal_contact`
+**День поездки.** С `departure_at - 2 ч` в `my_bookings.pin_code` у пассажира появляется PIN (водитель его не получает нигде: ни в чате, ни в views, ни в `bookings`), `reveal_contact`
 отдаёт телефон. Водитель вводит PIN: `enter_pin`. После выезда пассажиру приходит `trip_completed_ask`:
 `confirm_trip(booking_id, true|false)`. Водитель может отметить `mark_no_show`.
 
@@ -61,6 +61,8 @@
 - открытый чат: `messages` where `conversation_id = <текущий>`, отписка при уходе с экрана.
 
 Таблицы `bookings` и `messages` в publication `supabase_realtime`; RLS применяется к событиям.
+Колонка `bookings.pin_code` закрыта грантом: в событиях её нет, а `select('*')` по `bookings` отклоняется
+(перечисляйте колонки или читайте `my_bookings`).
 
 ## Edge Functions (`supabase.functions.invoke`)
 
@@ -114,7 +116,7 @@
 | `publish_trip` | `id`, `price_hint_kz` (может быть null) |
 | `price_hint` | `price_hint_kz`, `minutes` (null, если маршрута нет в `route_durations`) |
 | `upsert_profile` | строка `profiles` целиком |
-| `my_bookings.pin_code` | 4 цифры или null до `departure_at - 2 ч` |
+| `my_bookings.pin_code` | 4 цифры у пассажира брони с `departure_at - 2 ч`; иначе null (водителю всегда null) |
 
 **Значения `rule`** (правило возврата, ТЗ раздел 5): `driver_cancel` (водитель отменил, 100 %),
 `driver_decline` (водитель отклонил запрос, 100 %), `driver_unconfirmed` (водитель не подтвердил поездку
@@ -170,7 +172,7 @@
 
 ### `my_bookings`
 
-Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; (фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и vehicle_*; pin_code появляется с departure_at - 2 ч. cancel_reason объясняет payment_failed и cancelled. passenger_rating_count = 0 значит оценок нет: рейтинг 0,00 не показывать. Читают: anon, authenticated, service_role.
+Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; (фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и vehicle_*; pin_code появляется с departure_at - 2 ч и только у пассажира брони (водителю всегда null). cancel_reason объясняет payment_failed и cancelled. passenger_rating_count = 0 значит оценок нет: рейтинг 0,00 не показывать. Читают: anon, authenticated, service_role.
 
 | Колонка | Тип |
 | --- | --- |
@@ -378,7 +380,7 @@ RLS: пользователь видит свои строки (пассажир
 | Таблица | anon select | authenticated select | authenticated write |
 | --- | --- | --- | --- |
 | `banned_phones` | да | да | - |
-| `bookings` | да | да | - |
+| `bookings` | да, кроме pin_code | да, кроме pin_code | - |
 | `contact_reveals` | да | да | - |
 | `conversations` | да | да | - |
 | `devices` | да | да | да |
@@ -388,7 +390,7 @@ RLS: пользователь видит свои строки (пассажир
 | `messages` | да | да | - |
 | `moderation_actions` | да | да | - |
 | `notifications` | да | да | - |
-| `payments` | - | - | - |
+| `payments` | - | да, кроме provider_ref, refund_ref, raw_request, raw_webhook, updated_at, refund_attempts, refund_failed_at | - |
 | `payouts` | да | да | - |
 | `places` | да | да | - |
 | `profiles` | да | да | - |

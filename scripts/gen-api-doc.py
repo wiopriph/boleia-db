@@ -114,7 +114,7 @@ VIEW_DOC = {
     "profiles_public": "Публичный профиль: доверие, рейтинг, бейдж отмен. Без телефона и баланса.",
     "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; "
                    "(фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и "
-                   "vehicle_*; pin_code появляется с departure_at - 2 ч. cancel_reason объясняет payment_failed и cancelled. "
+                   "vehicle_*; pin_code появляется с departure_at - 2 ч и только у пассажира брони (водителю всегда null). cancel_reason объясняет payment_failed и cancelled. "
                    "passenger_rating_count = 0 значит оценок нет: рейтинг 0,00 не показывать.",
     "my_conversations": "Чаты текущего пользователя с собеседником, последним сообщением и unread_count (системные тоже считаются).",
     "driver_wallet": "Кошелёк водителя: balance_kz, pending_kz (будущие поездки), earned_total_kz (только выплаты за завершённые брони, "
@@ -187,17 +187,21 @@ def notification_types() -> str:
 
 
 def table_access() -> str:
+    # select считается и по колоночным грантам: закрытые колонки перечисляются в ячейке
     rows = q("""select c.relname,
-                       bool_or(g.grantee = 'anon' and g.privilege_type = 'SELECT'),
-                       bool_or(g.grantee = 'authenticated' and g.privilege_type = 'SELECT'),
-                       bool_or(g.grantee = 'authenticated' and g.privilege_type in ('INSERT','UPDATE','DELETE'))
+                       has_any_column_privilege('anon', c.oid, 'select'),
+                       has_any_column_privilege('authenticated', c.oid, 'select'),
+                       coalesce(bool_or(g.grantee = 'authenticated' and g.privilege_type in ('INSERT','UPDATE','DELETE')), false),
+                       coalesce((select string_agg(a.attname, ', ' order by a.attnum) from pg_attribute a
+                                 where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+                                   and not has_column_privilege('authenticated', c.oid, a.attnum, 'select')), '')
                 from pg_class c join pg_namespace n on n.oid = c.relnamespace
                 left join information_schema.role_table_grants g on g.table_schema = 'public' and g.table_name = c.relname
                 where n.nspname = 'public' and c.relkind = 'r'
-                group by c.relname order by 1""")
+                group by c.relname, c.oid order by 1""")
     lines = ["| Таблица | anon select | authenticated select | authenticated write |", "| --- | --- | --- | --- |"]
-    for name, a, s, w in rows:
-        mark = lambda v: "да" if v == "t" else "-"
+    for name, a, s, w, hidden in rows:
+        mark = lambda v: ("да, кроме " + hidden if hidden else "да") if v == "t" else "-"
         note = ""
         if name == "payments":
             note = " (без raw_*)"
@@ -205,7 +209,7 @@ def table_access() -> str:
             note = " (update своих полей)"
         if name == "notifications":
             note = " (update read_at)"
-        lines.append(f"| `{name}` | {mark(a)} | {mark(s)} | {mark(w)}{note if w == 't' else ''} |")
+        lines.append(f"| `{name}` | {mark(a)} | {mark(s)} | {'да' if w == 't' else '-'}{note if w == 't' else ''} |")
     return "\n".join(lines)
 
 
@@ -256,7 +260,7 @@ DOC = f"""# Boleia API: контракт для клиентов
 
 **Отмена.** `cancel_quote(booking_id)` показывает сумму и правило -> `cancel_booking(booking_id, reason)`.
 
-**День поездки.** С `departure_at - 2 ч` в `my_bookings.pin_code` появляется PIN, `reveal_contact`
+**День поездки.** С `departure_at - 2 ч` в `my_bookings.pin_code` у пассажира появляется PIN (водитель его не получает нигде: ни в чате, ни в views, ни в `bookings`), `reveal_contact`
 отдаёт телефон. Водитель вводит PIN: `enter_pin`. После выезда пассажиру приходит `trip_completed_ask`:
 `confirm_trip(booking_id, true|false)`. Водитель может отметить `mark_no_show`.
 
@@ -274,6 +278,8 @@ DOC = f"""# Boleia API: контракт для клиентов
 - открытый чат: `messages` where `conversation_id = <текущий>`, отписка при уходе с экрана.
 
 Таблицы `bookings` и `messages` в publication `supabase_realtime`; RLS применяется к событиям.
+Колонка `bookings.pin_code` закрыта грантом: в событиях её нет, а `select('*')` по `bookings` отклоняется
+(перечисляйте колонки или читайте `my_bookings`).
 
 ## Edge Functions (`supabase.functions.invoke`)
 
@@ -327,7 +333,7 @@ DOC = f"""# Boleia API: контракт для клиентов
 | `publish_trip` | `id`, `price_hint_kz` (может быть null) |
 | `price_hint` | `price_hint_kz`, `minutes` (null, если маршрута нет в `route_durations`) |
 | `upsert_profile` | строка `profiles` целиком |
-| `my_bookings.pin_code` | 4 цифры или null до `departure_at - 2 ч` |
+| `my_bookings.pin_code` | 4 цифры у пассажира брони с `departure_at - 2 ч`; иначе null (водителю всегда null) |
 
 **Значения `rule`** (правило возврата, ТЗ раздел 5): `driver_cancel` (водитель отменил, 100 %),
 `driver_decline` (водитель отклонил запрос, 100 %), `driver_unconfirmed` (водитель не подтвердил поездку
