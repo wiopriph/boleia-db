@@ -230,7 +230,7 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | fee\_kz | integer | seats × max(10 % × price\_per\_seat\_kz, 1 000); минимум считается на каждое место: 2 × 7 000 = 14 000 → 2 000; 2 × 3 000 = 6 000 → 2 000; 2 × 12 000 = 24 000 → 2 400. Снимок на момент запроса |
 | message | text | «Буду с чемоданом» |
 | status | enum `booking_status` | см. раздел 5 |
-| pin\_code | char(4) | генерируется при `accepted`, показывается только пассажиру брони с `departure_at − 2 ч` (`my_bookings.pin_code`, `pin_ready`). Водитель не получает его ни в чате, ни в views, ни из таблицы: колонка закрыта грантом (миграция 0021) |
+| pin\_code | char(4) | генерируется при `accepted`, показывается только пассажиру брони с `departure_at − 2 ч` (`my_bookings.pin_code`, `pin_ready`). Водитель и админ не получают его ни в чате, ни в views, ни из таблицы: колонка закрыта грантом (миграции 0021, 0022) |
 | pin\_entered\_at | timestamptz | водитель ввёл PIN = пассажир сел |
 | requested\_at | timestamptz | момент успешной оплаты |
 | responded\_at | timestamptz | момент accept/decline |

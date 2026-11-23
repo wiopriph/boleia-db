@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(22);
 
 -- ---------------------------------------------------------------------------
 -- PIN посадки виден только пассажиру (миграция 0021): ни чат, ни views, ни таблица bookings
@@ -100,8 +100,9 @@ select pg_temp.as_owner();
 select set_config('request.jwt.claims', json_build_object('sub', pg_temp.ctx_uuid('admin'), 'role', 'authenticated',
   'app_metadata', json_build_object('role', 'admin'))::text, true);
 select set_config('role', 'authenticated', true);
-select is((select pin_code::text from public.my_bookings where id = pg_temp.ctx_uuid('booking')), pg_temp.ctx_text('pin'),
-  'admin sees the PIN in my_bookings');
+select is((select count(*) from public.my_bookings where id = pg_temp.ctx_uuid('booking')), 1::bigint, 'admin sees the booking in my_bookings');
+select is((select pin_code from public.my_bookings where id = pg_temp.ctx_uuid('booking')), null,
+  'admin: my_bookings hides the PIN, an admin can be the driver of the trip');
 select pg_temp.as_owner();
 
 -- 4. Водитель по-прежнему вводит PIN, который назвал пассажир
