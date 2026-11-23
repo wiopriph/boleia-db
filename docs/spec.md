@@ -527,7 +527,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `confirm_trip(booking_id, happened bool)` | пассажир | только из `awaiting_confirm`; true → `completed` + ledger `escrow − / driver_balance + / platform_fee +`, `trips_ridden` +1, обеим сторонам `review_request` через 24 ч; false → `disputed`, водителю `dispute_opened` |
 | `mark_no_show(booking_id)` | водитель | только из `awaiting_confirm`, не раньше `departure_at + wait_minutes` (`NO_SHOW_TOO_EARLY`), в первые 48 ч (`NO_SHOW_WINDOW_CLOSED`), и только если по этой поездке введён PIN хотя бы одного другого пассажира (бронь не отменена: PIN отменённой до выезда брони не считается): → `no_show`, ledger release водителю, пассажиру `no_shows` +1; поездка с единственным пассажиром без PIN → `disputed`, решает модератор; несколько пассажиров без PIN или PIN самой брони → `NO_SHOW_NEEDS_PIN` |
 | `resolve_dispute(booking_id, outcome, amount_kz)` | admin (`NOT_ADMIN`) | `outcome` ∈ {`completed`, `refund_full`, `refund_partial`} (`DISPUTE_OUTCOME_INVALID`); `completed` → как подтверждение пассажира; `refund_full` → возврат, бронь `cancelled` от `system`, водителю `no_shows` +1; `refund_partial` → `amount_kz` пассажиру (`DISPUTE_AMOUNT_INVALID` вне 1..эскроу−1), остаток водителю минус комиссия пропорционально, бронь `completed`; пишет `moderation_actions(resolve_dispute)`, обеим сторонам `dispute_resolved` |
-| `request_payout(amount_kz)` | любой водитель с `payout_method` | `amount ≥ 5 000` (`AMOUNT_INVALID`); одна заявка в работе (`PAYOUT_PENDING`); не чаще раза в 7 дней (`RATE_LIMITED`); `balance_kz ≥ amount` (`INSUFFICIENT_BALANCE`); ledger `payout:<id>` `driver_balance − / cash_out +`; заявка `requested` со снимком `payout_method`; админам `payout_requested` |
+| `request_payout(amount_kz)` | любой водитель с `payout_method` | `amount ≥ 5 000` (`AMOUNT_INVALID`); одна заявка в работе (`PAYOUT_PENDING`); не чаще раза в 24 часа (`RATE_LIMITED`, миграция 0023); `balance_kz ≥ amount` (`INSUFFICIENT_BALANCE`); ledger `payout:<id>` `driver_balance − / cash_out +`; заявка `requested` со снимком `payout_method`; админам `payout_requested` |
 | `mark_payout(payout_id, status, ref)` | admin | `processing` / `paid` / `failed` из `requested`/`processing`; `paid` → `provider_ref`, `processed_by/at`, водителю `payout_paid`; `failed` → ledger `payout_failed:<id>` `cash_out − / driver_balance +`, водителю `payout_failed` |
 | `send_message(body, conversation_id?, trip_id?) → message_id` | участник | без `conversation_id` — создаёт чат по (trip, passenger) для поездки в `published`/`full`; лимиты: 5 новых чатов без брони за сутки и 10 сообщений пассажира до оплаченной брони (`CHAT_LIMIT_REACHED`), 60 сообщений/мин (`RATE_LIMITED`); только в открытом чате (`CHAT_CLOSED`); маскирование триггером; получателю push `new_message` с превью, если он не был в чате последние 60 с |
 | `mark_read(conversation_id, up_to_message_id)` | участник | — |
@@ -767,7 +767,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 **Комиссия** - решено (изменено 2026-11-23, миграция 0020): 10 % сверху с пассажира, минимум 1 000 Kz за каждое место, а не за бронь: `fee_kz = seats × max(10 % × цена места, 1 000)` (2 × 7 000 = 14 000 → 2 000; 2 × 3 000 = 6 000 → 2 000; 2 × 12 000 = 24 000 → 2 400; 1 × 7 000 → 1 000). Водитель получает ровно свою цену. На экране - отдельной строкой "Taxa de serviço". Следствие для дешёвых поездок: при месте за 3 000 Kz комиссия составит 33 %, при 7 000 - 14 %, и число мест в брони эту долю больше не снижает; это надо видеть в конверсии по маршрутам.
 
-**Выплаты в MVP** — вручную: водитель жмёт «Levantar», заявка падает в Telegram-бота, админ переводит через MCX Express / интернет-банк и отмечает `paid`. Раз в неделю, минимум 5 000 Kz. Автоматизация — когда появится API выплат у банка или объём превысит \~50 заявок в неделю.
+**Выплаты в MVP** — вручную: водитель жмёт «Levantar», заявка падает в Telegram-бота, админ переводит через MCX Express / интернет-банк и отмечает `paid`. Раз в сутки (заявка не чаще раза в 24 часа, изменено 2026-11-23), минимум 5 000 Kz. Автоматизация — когда появится API выплат у банка или объём превысит \~50 заявок в неделю.
 
 **Возвраты** — через API шлюза, если он их поддерживает (у Access Bank в FAQ заявлен «упрощённый процесс возврата»); иначе — переводом на номер пассажира в MCX Express из той же ручной очереди. Срок возврата пассажиру обещать «1–3 рабочих дня» до выяснения.
 
@@ -939,7 +939,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 - [x] Номер в MCX Express обязан совпадать с номером аккаунта.
 - [x] Национальные карты Multicaixa без приложения Express — да, если шлюз даёт в том же договоре.
 - [ ] Комиссия 10 % / мин. 1 000 Kz за место - решено; IVA 14 % - выясняем у бухгалтера.
-- [x] Выплаты раз в неделю, минимум 5 000 Kz, вручную на старте.
+- [x] Выплаты раз в сутки, минимум 5 000 Kz, вручную на старте.
 - [x] Комиссию шлюза при возврате по вине пассажира (> 24 ч) несёт пассажир — вычитается из возврата, показывается на экране отмены.
 - [ ] Бухгалтерия по ledger — кто ведёт и как часто выгрузка: разбираемся.
 

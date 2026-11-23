@@ -564,7 +564,7 @@ Admin: completed | refund_full | refund_partial(amount_kz).
 
 Возвращает `uuid`. Кто: authenticated.
 
-Заявка на выплату: >= 5000, одна в работе, раз в 7 дней.
+Заявка на выплату: >= 5000, одна в работе, не чаще раза в 24 часа.
 
 ### `mark_payout(payout_id uuid, new_status text, ref text DEFAULT NULL::text)`
 

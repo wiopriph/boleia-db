@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(136);
+select plan(137);
 
 -- ---------------------------------------------------------------------------
 -- Контекст и хелперы
@@ -244,9 +244,13 @@ select is((select balance_kz from public.profiles where id = pg_temp.cu('joao'))
 select is((select count(*) from public.ledger_entries where payout_id = pg_temp.cu('po1')), 4::bigint, 'reversal rows written');
 select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('joao') and type = 'payout_failed'), 'driver told');
 select pg_temp.as_user(pg_temp.cu('joao'));
-select throws_ok($$ select public.request_payout(5000) $$, 'P0001', 'BOLEIA_RATE_LIMITED', 'one request per 7 days');
+select throws_ok($$ select public.request_payout(5000) $$, 'P0001', 'BOLEIA_RATE_LIMITED', 'one request per 24 hours');
 reset role;
-update public.payouts set created_at = now() - interval '8 days' where id = pg_temp.cu('po1');
+update public.payouts set created_at = now() - interval '23 hours' where id = pg_temp.cu('po1');
+select pg_temp.as_user(pg_temp.cu('joao'));
+select throws_ok($$ select public.request_payout(5000) $$, 'P0001', 'BOLEIA_RATE_LIMITED', 'still refused 23 hours after the last request');
+reset role;
+update public.payouts set created_at = now() - interval '25 hours' where id = pg_temp.cu('po1');
 select pg_temp.as_user(pg_temp.cu('joao'));
 insert into ctx values ('po2', public.request_payout(7000)::text);
 select pg_temp.as_admin();

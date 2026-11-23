@@ -58,7 +58,7 @@ RPC_DOC = {
     "reveal_contact": "Телефон второй стороны: только accepted/awaiting_confirm и с departure_at - 2 ч.",
     "submit_review": "Отзыв по брони completed/no_show в течение 14 дней. tags: pontual, condução_segura, simpático.",
     "report_user": "Жалоба на пользователя с контекстом (trip/booking/message).",
-    "request_payout": "Заявка на выплату: >= 5000, одна в работе, раз в 7 дней.",
+    "request_payout": "Заявка на выплату: >= 5000, одна в работе, не чаще раза в 24 часа.",
     "mark_payout": "Admin: processing | paid | failed (failed возвращает деньги на баланс).",
     "submit_verification": "Заявка на верификацию: 4 документа в бакете verifications/<uid>/.",
     "review_verification": "Admin: одобрить или отклонить с причиной.",
