@@ -87,8 +87,38 @@
 ## Уведомления
 
 `notifications where user_id = uid and channel = 'inapp'` - лента в приложении; push через FCM по
-`register_device`. Типы: `booking_accepted`, `booking_cancelled_by_driver`, `booking_cancelled_by_passenger`, `booking_confirmed`, `booking_declined`, `booking_expired`, `booking_no_show`, `booking_requested`, `dispute_opened`, `dispute_resolved`, `driver_arrived`, `driver_unconfirmed`, `moderation_action`, `new_message`, `payment_failed`, `payment_pending`, `payout_failed`, `payout_paid`, `payout_released`, `payout_requested`, `pin_ready`, `reconciliation_alert`, `refund_done`, `refund_manual`, `report_opened`, `review_request`, `trip_cancelled`, `trip_completed_ask`, `trip_reminder_24h`, `trip_reminder_2h`, `trip_reminder_6h`, `verification_approved`, `verification_rejected`, `verification_submitted`. Payload содержит `booking_id` / `trip_id` /
-`conversation_id` для deep link (`boleia://booking/<id>`, `boleia://trip/<id>`).
+`register_device`. Типы: `booking_accepted`, `booking_cancelled_by_driver`, `booking_cancelled_by_passenger`, `booking_confirmed`, `booking_declined`, `booking_expired`, `booking_no_show`, `booking_requested`, `dispute_opened`, `dispute_resolved`, `driver_arrived`, `driver_unconfirmed`, `moderation_action`, `new_message`, `payment_failed`, `payment_pending`, `payout_failed`, `payout_paid`, `payout_released`, `payout_requested`, `pin_ready`, `reconciliation_alert`, `refund_done`, `refund_manual`, `report_opened`, `review_request`, `trip_cancelled`, `trip_completed_ask`, `trip_reminder_24h`, `trip_reminder_2h`, `trip_reminder_6h`, `verification_approved`, `verification_rejected`, `verification_submitted`.
+
+**Контекст в payload.** Если в payload есть `trip_id` или `booking_id`, `notify()` дописывает
+(миграция 0024): `trip_id`, `origin_name`, `destination_name`, `departure_at` и `role` получателя -
+`driver` (водитель этой поездки) или `passenger` (пассажир этой брони); у постороннего получателя (админ)
+ключа `role` нет. Ключи самого события сильнее контекста. Уведомления, созданные до 0024, контекста
+не имеют: клиент показывает их без строки маршрута.
+
+**Прочтение.** `mark_notifications_read(ids)` - поштучно, по нажатию на уведомление, плюс действие
+"прочитать все". `mark_read` чата сам гасит in-app уведомления `new_message` этого чата.
+
+**Куда ведёт уведомление.** Одинаково в web и в приложении; экран выбирается по типу, у двусторонних
+типов по `role`.
+
+| Типы | Получатель | Экран |
+| --- | --- | --- |
+| `new_message` | обе стороны | чат `conversation_id` |
+| `review_request` | обе стороны | форма отзыва по `booking_id` |
+| `payment_pending`, `payment_failed`, `booking_accepted`, `booking_declined`, `booking_expired`, `booking_cancelled_by_driver`, `booking_no_show`, `refund_done`, `pin_ready`, `driver_unconfirmed`, `driver_arrived`, `trip_completed_ask` | пассажир | бронь `booking_id` |
+| `booking_requested`, `booking_confirmed`, `booking_cancelled_by_passenger`, `trip_reminder_6h`, `trip_reminder_2h` | водитель | своя поездка `trip_id` |
+| `trip_reminder_24h`, `trip_cancelled`, `dispute_opened`, `dispute_resolved` | обе стороны | `role = driver` - своя поездка `trip_id`; `role = passenger` - бронь `booking_id` |
+| `payout_released`, `payout_paid`, `payout_failed` | водитель | кошелёк |
+| `verification_approved`, `verification_rejected` | водитель | экран верификации |
+| `moderation_action` | пользователь | экрана нет, текст в ленте |
+| `payout_requested` | админы | админка: выплаты |
+| `verification_submitted` | админы | админка: верификации |
+| `report_opened` | админы | админка: жалобы |
+| `refund_manual`, `reconciliation_alert` | админы | админка: деньги |
+
+Запасное правило для неизвестного типа: `conversation_id` -> чат, иначе `role = driver` и `trip_id` ->
+поездка, иначе `booking_id` -> бронь, иначе `trip_id` -> поездка. Те же ключи клиент берёт для deep link
+из push (`boleia://booking/<id>`, `boleia://trip/<id>`).
 
 ## Формы jsonb
 
@@ -438,7 +468,7 @@ Push-токен устройства (upsert по токену).
 
 Возвращает `void`. Кто: authenticated.
 
-Отметить in-app уведомления прочитанными.
+Отметить in-app уведомления прочитанными (поштучно по нажатию или все сразу).
 
 ### `publish_trip(payload jsonb)`
 

@@ -1689,6 +1689,9 @@ isOneToOne: false
 "mod_log":
 { Args: { "p_action": Database["public"]['Enums']["mod_action"],"p_admin": string,"p_payload"?: Json,"p_reason": string,"p_report"?: string,"p_target": string,"p_until"?: string }; Returns: string
                            },
+"notification_context":
+{ Args: { "p_payload": Json,"p_user_id": string }; Returns: Json
+                           },
 "notification_delivered":
 { Args: { "error"?: string,"id": string,"ok": boolean }; Returns: undefined
                            },

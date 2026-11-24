@@ -530,12 +530,12 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `request_payout(amount_kz)` | любой водитель с `payout_method` | `amount ≥ 5 000` (`AMOUNT_INVALID`); одна заявка в работе (`PAYOUT_PENDING`); не чаще раза в 24 часа (`RATE_LIMITED`, миграция 0023); `balance_kz ≥ amount` (`INSUFFICIENT_BALANCE`); ledger `payout:<id>` `driver_balance − / cash_out +`; заявка `requested` со снимком `payout_method`; админам `payout_requested` |
 | `mark_payout(payout_id, status, ref)` | admin | `processing` / `paid` / `failed` из `requested`/`processing`; `paid` → `provider_ref`, `processed_by/at`, водителю `payout_paid`; `failed` → ledger `payout_failed:<id>` `cash_out − / driver_balance +`, водителю `payout_failed` |
 | `send_message(body, conversation_id?, trip_id?) → message_id` | участник | без `conversation_id` — создаёт чат по (trip, passenger) для поездки в `published`/`full`; лимиты: 5 новых чатов без брони за сутки и 10 сообщений пассажира до оплаченной брони (`CHAT_LIMIT_REACHED`), 60 сообщений/мин (`RATE_LIMITED`); только в открытом чате (`CHAT_CLOSED`); маскирование триггером; получателю push `new_message` с превью, если он не был в чате последние 60 с |
-| `mark_read(conversation_id, up_to_message_id)` | участник | — |
+| `mark_read(conversation_id, up_to_message_id)` | участник | заодно гасит in-app уведомления `new_message` этого чата (миграция 0024) |
 | `reveal_contact(booking_id) → {user_id, display_name, phone}` | обе стороны | только `accepted`/`awaiting_confirm` (`BOOKING_CLOSED`) и `now() ≥ departure_at − 2 ч` (`CONTACT_LOCKED`); пишет `contact_reveals` |
 | `submit_review(booking_id, rating, tags, comment)` | обе стороны | только `completed`/`no_show`; 14 дней от `completed_at` (`REVIEW_WINDOW_CLOSED`); `rating` 1–5, `tags` из `pontual`/`condução_segura`/`simpático`, `comment` ≤ 300; один отзыв на автора (`REVIEW_DUPLICATE`) |
 | `report_user(target_id, reason, details, trip_id?, booking_id?, message_id?)` | любой | не на себя (`TARGET_INVALID`); ≤ 10 жалоб в сутки; `reports(open)`; админам in-app `report_opened` |
 | `register_device(platform, token, app_version)` | клиент | upsert по токену |
-| `mark_notifications_read(ids[])` | владелец | — |
+| `mark_notifications_read(ids[])` | владелец | клиент зовёт поштучно, по нажатию на уведомление, и для действия "прочитать все" |
 | `admin_search_users(q, lim)` | admin | поиск по телефону (цифры), имени или id; карточка пользователя одним вызовом |
 | `admin_moderate(target_id, action, reason, days?, report_id?)` | admin | `warn` / `restrict` / `suspend` на `days` / `ban` (телефон в `banned_phones`, вход закрыт, поездки водителя отменяются платформой с возвратом 100 %, брони пассажира отменяются с возвратом ему) / `unban`; пишет `moderation_actions`, цели `moderation_action`; с `report_id` жалоба → `actioned` |
 | `admin_resolve_report(report_id, outcome, note?)` | admin | `reviewed` (в работе) или `dismissed` |
@@ -694,6 +694,8 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 ## 9. Уведомления
 
 Каждое событие пишет строку в `notifications` с одним каналом по приоритету: push, если у пользователя есть живой токен; иначе SMS через castbrick — но SMS только для событий с деньгами или временем (оплата, отмена, напоминание за 2 ч), остальное ждёт, пока пользователь откроет приложение. In-app копия пишется всегда. Сообщения чата — отдельный тип: push с текстом превью, если получатель не в этом чате последние 60 с.
+
+Payload каждого уведомления с `trip_id` или `booking_id` дополняется в `notify()` маршрутом (`origin_name`, `destination_name`), `departure_at` и ролью получателя (`role`: `driver` / `passenger`), миграция 0024. Какой экран открывает уведомление - таблица в `docs/api.md`, общая для web и Flutter.
 
 | Событие | Кому | Канал | Текст (смысл) |
 | --- | --- | --- | --- |
