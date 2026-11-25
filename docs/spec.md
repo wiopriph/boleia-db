@@ -18,8 +18,8 @@ MVP — полный цикл с деньгами: пассажир платит
 - Поиск по маршруту и дате; SEO-страницы маршрутов на web (`/boleias/luanda-benguela`)
 - Бронирование с оплатой сразу (Multicaixa Express). Два режима на выбор водителя: автобронь — место подтверждено сразу после оплаты, пассажир попадает в чат поездки; ручная — водитель принимает/отклоняет за 24 ч, отказ = автоматический возврат
 - Чат водитель ↔ пассажир внутри приложения, доступен с карточки поездки до оплаты; номера и ссылки маскируются до дня поездки
-- Отмены с правилами возврата, напоминания за 24 ч и 2 ч, «Вы доехали?» после
-- PIN-код посадки как доказательство поездки; выплата водителю после подтверждения
+- Отмены с правилами возврата, напоминания за 24 ч и 2 ч; поездку начинает и завершает водитель, пассажир после завершения оценивает или оспаривает
+- PIN-код посадки как доказательство поездки; выплата водителю после оценки пассажира или 24 ч без возражений
 - Баланс водителя и вывод на Multicaixa Express / IBAN
 - Двусторонние оценки, жалобы, модерация через Telegram-бота и админку
 
@@ -204,9 +204,12 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 Индексы: `(origin_place_id, destination_place_id, departure_at) where status = 'published'`, `(driver_id, departure_at)`, `(departure_at) where status in ('published','full')` для cron-задач.
 
 Дополнительно в `trips`: `driver_confirmed_at timestamptz` — ответ водителя на напоминание за 24 ч (`confirm_trip_intent`); null к `departure_at − 6 ч` открывает пассажирам бесплатную отмену.
-| reminded\_24h\_at, reminded\_6h\_at, completed\_ask\_at | timestamptz | отметки cron: напоминание −24 ч / −6 ч отправлено, вопрос «Вы доехали?» задан |
+| reminded\_24h\_at, reminded\_6h\_at, start\_reminded\_at | timestamptz | отметки cron: напоминание −24 ч / −6 ч отправлено; водителю напомнили начать поездку. `completed_ask_at` осталась в таблице и не используется (миграция 0025) |
 | wait\_minutes | smallint, 30 / 45 / 60, default 30 | сколько водитель ждёт опоздавших после `departure_at`; выбирает при публикации, меняет пока нет оплаченных броней; показывается пассажиру до оплаты, в брони и в SMS с PIN |
-| driver\_arrived\_at | timestamptz | «Cheguei ao ponto de encontro» (`driver_arrived`): пассажиры видят, что водитель на месте; при споре — ответ водителя, автоотмены cron'ом нет |
+| driver\_arrived\_at | timestamptz | не используется с миграции 0025 (кнопка "Cheguei" убрана), всегда `null`; колонка оставлена для совместимости views |
+| started\_at | timestamptz | водитель нажал "начать поездку" (`start_trip`) или это сделала страховка cron. В этот момент фиксируется, кто сел |
+| finished\_at | timestamptz | водитель нажал "завершить поездку" (`finish_trip`) или это сделала страховка cron; от неё идут 24 ч на оценку или спор. Без пассажиров на борту ставится вместе со `started_at` |
+| closed\_by\_system | boolean | старт, завершение или отмену сделал cron, а не водитель |
 
 ### trip\_stops (этап 2)
 
@@ -238,10 +241,13 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 | cancelled\_by | enum `party` | `passenger`, `driver`, `system` |
 | cancel\_reason | text | — |
 | refund\_kz | integer | сколько вернули пассажиру по правилам раздела 5 |
-| passenger\_confirmed\_at | timestamptz | ответ на «Вы доехали?» |
+| passenger\_confirmed\_at | timestamptz | пассажир одобрил завершённую поездку ("Avaliar") или открыл спор |
 | driver\_confirmed\_at | timestamptz | — |
 | completed\_at | timestamptz | — |
 | pin\_sent\_at | timestamptz | PIN выдан пассажиру: `pin_ready` и системное сообщение в чат без цифр (cron за 2 ч; бронь, принятая позже, получает PIN на следующем тике) |
+| not\_boarded\_at | timestamptz | поездка началась без этого пассажира (PIN не введён в момент `start_trip`); от неё идут 24 ч на возражение. Снимается, если водитель ввёл PIN после старта |
+| dispute\_reason | text | причина спора из списка: `not_arrived`, `left_midway`, `unsafe`, `other` после поездки; `was_there`, `driver_left_early`, `other` после "поездка началась без вас" |
+| dispute\_details | text | комментарий пассажира к спору, 5-500 знаков; виден пассажиру и админу (`my_bookings`), из таблицы клиентам не читается |
 
 Ограничение: один активный запрос пассажира на поездку — `unique (trip_id, passenger_id) where status in ('pending_payment','requested','accepted','awaiting_confirm')`. Пассажир не может бронировать свою же поездку (триггер). Места резервируются уже в `pending_payment` на 15 минут, чтобы два пассажира не оплатили одно место.
 
@@ -457,24 +463,27 @@ Nuxt 4 (web, SSR/SEO, admin)   Flutter (iOS/Android)   Telegram-бот моде�
 1. `draft` — создана, не видна в поиске.
 2. `published` — в поиске, принимает брони. Требует: аватар, машина, `payout_method` заполнен, `departure_at` не раньше чем через 2 часа. Для `driver_status ≠ verified` — те же условия, в карточке без ✓.
 3. `full` — `seats_available = 0`; в поиске видна с пометкой, запросы закрыты. Обратно в `published` при отмене брони или протухании неоплаченного запроса.
-4. `departed` — cron переводит в `departure_at`; новые запросы невозможны, отмена невозможна.
-5. `completed` — все брони дошли до финала или прошло 7 дней после выезда.
+4. `departed` — cron переводит в `departure_at`; новые запросы невозможны, отмена невозможна. Раньше времени выезда в `departed` поездку переводит `start_trip`, если все пассажиры уже с PIN. Внутри `departed` поездка проходит: не начата → начата (`started_at`) → завершена водителем (`finished_at`).
+5. `completed` — все брони дошли до финала. `cancelled` после выезда — поездка, которую водитель не начал и по которой нет ни одного PIN за 24 ч (`trip_not_started`).
 6. `cancelled` — водитель отменил (до `departed`); все активные брони → `cancelled` с `cancelled_by = driver` и полным возвратом.
 7. `expired` — опубликована, ни одной принятой брони, время выезда прошло. Не считается в статистике водителя.
 
 **Бронь (`booking_status`)**
 
 ```
-pending_payment ──(оплата OK)──► [instant] accepted ──(cron: выезд)──► awaiting_confirm ──("доехал" / 48 ч с PIN / 7 дней)──► completed
+pending_payment ──(оплата OK)──► [instant] accepted ──(cron: выезд или start_trip)──► awaiting_confirm ──(оценка пассажира / 24 ч после finish_trip)──► completed
       │                          [approval] requested ──(водитель принял)──► accepted
       │ 15 мин без оплаты                  │ отказ / 24 ч / departure−1ч → declined/expired (возврат 100%)
       ▼                                    │
 payment_failed (retry ≤3)                  └─ любая сторона до выезда → cancelled (возврат по таблице раздела 5)
-awaiting_confirm ──(водитель: "не пришёл", есть PIN других)──► no_show
-awaiting_confirm ──(пассажир: "не ехал")──► disputed ──(модератор)──► completed | refund
+awaiting_confirm, PIN нет в момент start_trip ──(24 ч без возражения)──► no_show
+awaiting_confirm ──(пассажир: open_dispute после finish_trip или после "началась без вас")──► disputed ──(модератор)──► completed | no_show | refund
+awaiting_confirm ──(ни PIN, ни start_trip 24 ч после выезда)──► cancelled (trip_not_started, возврат 100%)
 ```
 
-**Ожидание опоздавших.** Резерв — контракт обеих сторон: пассажир на месте к `departure_at`, водитель ждёт `trips.wait_minutes` (30 / 45 / 60, выбирает при публикации, по умолчанию 30). До `departure_at + wait_minutes` водитель не может отметить «não apareceu» (`NO_SHOW_TOO_EARLY`); после — может, если введён PIN хотя бы одного другого пассажира, и опоздавший теряет оплату (строка «Пассажир не пришёл» в таблице ниже). Водитель отмечает «Cheguei» (`driver_arrived`) с −3 ч до конца ожидания: пассажиры получают уведомление и время, до которого он ждёт. Опоздал водитель: пассажир после выезда нажимает «não viajei», открывается спор; без PIN на поездке, без ответа водителя в чате и без отметки «Cheguei» cron через 24 ч отменяет поездку с полным возвратом и санкциями водителю (строка «Водитель не приехал»); с отметкой или ответом — решает модератор.
+**Ожидание опоздавших.** Резерв - контракт обеих сторон: пассажир на месте к `departure_at`, водитель ждёт `trips.wait_minutes` (30 / 45 / 60, выбирает при публикации, по умолчанию 30). Пока есть принятая бронь без PIN, водитель не может начать поездку раньше `departure_at + wait_minutes` (`START_TOO_EARLY`); когда PIN введён у всех, ждать не нужно. Автоматического старта нет: водитель может ждать опоздавшего и дольше. В момент старта брони без PIN получают `not_boarded_at`: пассажиру уходит "A viagem começou sem si" и 24 ч на возражение; молчание закрывает бронь как `no_show` без возврата (строка "Пассажир не сел" ниже). Опоздавшего можно посадить и после старта: PIN вводится до завершения поездки и снимает отметку.
+
+**Поездка по шагам (как в такси, миграция 0025).** Водитель: `enter_pin` каждого пассажира → `start_trip` → `finish_trip`. Пассажир: называет PIN; в пути может пожаловаться (`report_user`, на деньги не влияет); после завершения 24 ч на "Avaliar" (`confirm_trip`, деньги водителю сразу) или "Contestar" (`open_dispute`, деньги заморожены). Молчание 24 ч закрывает бронь в пользу водителя. Деньги не уходят в момент нажатия водителя: GPS нет, конец поездки нечем проверить, а вернуть выплаченное невозможно. Этап брони для экранов отдаёт `my_bookings.stage`: `payment`, `requested`, `accepted`, `boarding`, `on_board`, `in_trip`, `finished`, `not_boarded`, далее конечные статусы. Кнопок "Cheguei", "Não apareceu", "Sim, cheguei", "Não viajei" и вопроса "Chegou bem?" больше нет.
 
 `pending_payment` — бронь создана, место зарезервировано, платёж отправлен в Multicaixa Express; 15 минут на подтверждение, иначе `payment_failed` и место освобождается. Дальше зависит от `trips.booking_mode`: при `instant` оплата сразу переводит бронь в `accepted` (PIN генерируется, пассажир попадает в чат поездки); при `approval` — в `requested`, деньги на эскроу, у водителя 24 ч, отказ или молчание → полный возврат. Чат доступен с карточки поездки до брони («Perguntar ao condutor»); если пассажир не писал, чат создаётся в момент брони. PIN и телефон — с `departure_at − 2 ч` по `accepted`. Отзывы — только из `completed` и `no_show`. Из `cancelled` переход возможен и из `requested`, и из `accepted` — на схеме показана одна стрелка; переход `pending_payment → accepted` для instant на схеме не показан.
 
@@ -487,11 +496,11 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Водитель отменил поездку или одну бронь | > 24 ч до выезда | 100 % | `cancels_total` +1 |
 | Водитель отменил поездку или одну бронь | < 24 ч | 100 % | `cancels_total` +1 |
 | Водитель не подтвердил поездку к `departure_at − 6 ч` | — | пассажир может отменить сам, 100 % | — |
-| Водитель не приехал (ни одного PIN, ≥ 1 пассажир сообщил «не ехал», водитель не оспорил за 24 ч) | после выезда | 100 % всем броням | `cancels_total` +1, `no_shows` +1; поездки скрыты до разбора модератором |
+| Поездка не состоялась: ни одного PIN и нет старта 24 ч после выезда (`trip_not_started`) | после выезда | 100 % всем броням, cron | водителю `cancels_total` +1; `no_shows` +1, если пассажир пожаловался (`report_user`, причина `no_show`) |
 | Пассажир отменил | > 24 ч | 100 % минус комиссия шлюза | `cancels_total` +1 |
 | Пассажир отменил | < 24 ч | 50 %; остаток — водителю после `completed` этой поездки, если поездка не состоялась — платформе | `cancels_total` +1 |
-| Пассажир не пришёл (`no_show`, водитель ввёл PIN других) | — | 0 %; сумма водителю минус комиссия | `no_shows` +1 |
-| Пассажир: «не ехал» (`disputed`) | пока бронь в `awaiting_confirm` (с PIN это до 48 ч, дальше автозавершение; без PIN до 7 дней) | решает модератор по чату и PIN; без PIN — в пользу пассажира. `refund_full` → бронь `cancelled`, `cancelled_by = system`, `cancel_reason = dispute_refund`, водителю `no_shows` +1; `refund_partial` → бронь `completed`, счётчики не трогаются | — |
+| Пассажир не сел: PIN не введён в момент `start_trip`, за 24 ч не возразил (`no_show`) | - | 0 %; сумма водителю минус комиссия | `no_shows` +1 |
+| Пассажир оспорил (`disputed`) | 24 ч после `finish_trip` или после "поездка началась без вас" | причина и комментарий обязательны; решает модератор по чату, PIN и жалобам. `refund_full` → бронь `cancelled`, `cancelled_by = system`, `cancel_reason = dispute_refund`, водителю `no_shows` +1; `refund_partial` → бронь `completed`; `completed` → деньги водителю; `no_show` (только бронь без PIN) → деньги водителю, пассажиру `no_shows` +1 | - |
 | Платформа отменила поездку (бан водителя) | — | 100 % | — |
 
 Санкций в MVP нет: счётчики видны в профиле как бейдж («Nunca cancelou» / «Às vezes cancela») и в админке. Автоматическое отключение злостных отменяющих — после теста, когда будет понятно, где порог; до этого — вручную модератором.
@@ -514,7 +523,8 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `publish_trip(payload)` | любой водитель с машиной и `payout_method` | валидация; `origin`/`destination` только `city`/`town` (landmark — в `origin_detail`), иначе `PLACE_INVALID`; `booking_mode` (instant по умолчанию); `wait_minutes` 30 / 45 / 60 (`WAIT_INVALID`); `notes` ≤ 500 (`MESSAGE_TOO_LONG`); не больше 5 активных поездок; запрет дубля ±2 ч; подсказка цены из `route_durations` |
 | `create_return_trip(trip_id, departure_at) → uuid` | водитель | копия поездки с перестановкой городов и точек, та же машина, цена, места, режим брони, багаж, флаги, заметки; внутри вызывает `publish_trip`, поэтому все его проверки и ошибки те же |
 | `update_trip(trip_id, payload)` | водитель | цена/места/заметки/багаж/флаги/детали точек/`wait_minutes` — только пока нет оплаченных броней (`TRIP_HAS_BOOKINGS`); время — пока нет ни одной брони, включая `pending_payment`, сбрасывает `driver_confirmed_at`; `booking_mode` — в любой момент, действует на новые брони; любой другой ключ (`vehicle_id`, города) → `TRIP_FIELD_LOCKED`; поездка не в `published`/`full` → `TRIP_CLOSED` |
-| `driver_arrived(trip_id)` | водитель | «Cheguei»: окно `departure_at − 3 ч … departure_at + wait_minutes` (`ARRIVAL_WINDOW_CLOSED`), идемпотентна; `driver_arrived_at`, пассажирам `driver_arrived` и системное сообщение с временем ожидания |
+| `start_trip(trip_id) → {started_at, on_board, not_boarded}` | водитель | поездка `published`/`full`/`departed` (`TRIP_CLOSED`); есть принятая бронь (`TRIP_NO_PASSENGERS`); не раньше `departure_at − 3 ч`, а пока есть бронь без PIN - не раньше `departure_at + wait_minutes` (`START_TOO_EARLY`). Ставит `started_at`; до времени выезда заодно делает выезд (поездка `departed`, брони `awaiting_confirm`, неоплаченные и неотвеченные закрываются с возвратом). Брони без PIN: `not_boarded_at`, пассажиру `trip_started_without_you`. Без единого PIN ("Ninguém apareceu") сразу ставит и `finished_at`. Повтор не ошибка |
+| `finish_trip(trip_id) → {finished_at, asked}` | водитель | только начатая поездка (`TRIP_NOT_STARTED`); доступно сразу после старта. Ставит `finished_at`, пассажирам с PIN `trip_finished` и системное сообщение. Повтор не ошибка |
 | `confirm_trip_intent(trip_id)` | водитель | ответ на напоминание −24 ч: ставит `driver_confirmed_at` (повторный вызов не ошибка); без него к −6 ч пассажирам открывается бесплатная отмена; поездка не в `published`/`full` → `TRIP_CLOSED` |
 | `cancel_trip(trip_id, reason)` | водитель | каскад по броням: `pending_payment` → `payment_failed`, `requested`/`accepted` → `cancelled` с полным возвратом, удержанные 50 % поздних отмен → `forfeit`; `cancels_total` +1, только если была хотя бы одна оплаченная бронь; после `departed` → `TOO_LATE_TO_CANCEL` |
 | `request_booking(trip_id, seats, message)` | пассажир | атомарно: проверка мест, статуса профиля и поездки (`published`, до `departure_at − 1 ч`), резерв места, бронь `pending_payment`, запись `payments(created, expires_at = +15 мин)`; лимит 3 активные брони (`BOOKING_LIMIT_REACHED`); `restricted` не может; возвращает `booking_id` + `payment_id` + суммы для `payments-init` |
@@ -523,10 +533,10 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | `respond_booking(booking_id, accept, reason)` | водитель, только для approval-поездок | accept → `accepted` + pin; decline → `declined` + возврат (ledger `escrow − / refunds +`, задача на refund в шлюз) |
 | `cancel_quote(booking_id)` | пассажир или водитель (для водителя по брони в `requested` — правило `driver_decline` без счётчика, как и сделает `cancel_booking`) | сумма возврата, удержание и правило по таблице раздела 5 для показа на экране отмены до подтверждения; та же функция `refund_rule`, что и в `cancel_booking` |
 | `cancel_booking(booking_id, reason)` | пассажир или водитель | `cancelled_by`, возврат по таблице раздела 5, место назад, `cancels_total` +1 где положено; водитель на бронь в `requested` = отказ (`declined`, без санкции); из `pending_payment` нельзя (`PAYMENT_PENDING`), после `departed` нельзя (`TOO_LATE_TO_CANCEL`) |
-| `enter_pin(booking_id, pin) → {ok, attempts_left}` | водитель | только в `accepted`/`awaiting_confirm`, окно от `departure_at − 3 ч` до `departure_at + 24 ч` (`PIN_WINDOW_CLOSED`); верный → `pin_entered_at`, `{ok: true}`; неверный → `{ok: false, attempts_left}` без ошибки (ошибка откатила бы запись о попытке); 5 неверных за 10 мин → `RATE_LIMITED`; не 4 цифры → `PIN_INVALID` |
-| `confirm_trip(booking_id, happened bool)` | пассажир | только из `awaiting_confirm`; true → `completed` + ledger `escrow − / driver_balance + / platform_fee +`, `trips_ridden` +1, обеим сторонам `review_request` через 24 ч; false → `disputed`, водителю `dispute_opened` |
-| `mark_no_show(booking_id)` | водитель | только из `awaiting_confirm`, не раньше `departure_at + wait_minutes` (`NO_SHOW_TOO_EARLY`), в первые 48 ч (`NO_SHOW_WINDOW_CLOSED`), и только если по этой поездке введён PIN хотя бы одного другого пассажира (бронь не отменена: PIN отменённой до выезда брони не считается): → `no_show`, ledger release водителю, пассажиру `no_shows` +1; поездка с единственным пассажиром без PIN → `disputed`, решает модератор; несколько пассажиров без PIN или PIN самой брони → `NO_SHOW_NEEDS_PIN` |
-| `resolve_dispute(booking_id, outcome, amount_kz)` | admin (`NOT_ADMIN`) | `outcome` ∈ {`completed`, `refund_full`, `refund_partial`} (`DISPUTE_OUTCOME_INVALID`); `completed` → как подтверждение пассажира; `refund_full` → возврат, бронь `cancelled` от `system`, водителю `no_shows` +1; `refund_partial` → `amount_kz` пассажиру (`DISPUTE_AMOUNT_INVALID` вне 1..эскроу−1), остаток водителю минус комиссия пропорционально, бронь `completed`; пишет `moderation_actions(resolve_dispute)`, обеим сторонам `dispute_resolved` |
+| `enter_pin(booking_id, pin) → {ok, attempts_left}` | водитель | только в `accepted`/`awaiting_confirm`, с `departure_at − 3 ч` и до завершения поездки (`PIN_WINDOW_CLOSED`); верный → `pin_entered_at`, снимает `not_boarded_at`, `{ok: true}`; неверный → `{ok: false, attempts_left}` без ошибки (ошибка откатила бы запись о попытке); 5 неверных за 10 мин → `RATE_LIMITED`; не 4 цифры → `PIN_INVALID`. Бронь с введённым PIN не отменяется (`TOO_LATE_TO_CANCEL` в `cancel_booking`, `cancel_quote`, `cancel_trip`) |
+| `confirm_trip(booking_id, happened bool)` | пассажир | одобрение завершённой поездки (кнопка "Avaliar"): только `true`, бронь `awaiting_confirm` с PIN и `finished_at` у поездки (`TRIP_NOT_FINISHED`) → `completed` + ledger `escrow − / driver_balance + / platform_fee +`, `trips_ridden` +1, обеим сторонам `review_request` через 24 ч. `false` → `DISPUTE_REASON_REQUIRED`: спор открывает `open_dispute` |
+| `open_dispute(booking_id, reason, details)` | пассажир | бронь `awaiting_confirm`; либо PIN и завершённая поездка, либо `not_boarded_at` (`TRIP_NOT_FINISHED`): в пути спора нет, есть жалоба `report_user`. `reason` из списка своей ветки (`DISPUTE_REASON_INVALID`), `details` 5-500 знаков (`DISPUTE_DETAILS_REQUIRED`) → `disputed`, причина и комментарий в брони, водителю `dispute_opened` |
+| `resolve_dispute(booking_id, outcome, amount_kz)` | admin (`NOT_ADMIN`) | `outcome` ∈ {`completed`, `refund_full`, `refund_partial`, `no_show`} (`DISPUTE_OUTCOME_INVALID`); `completed` → как одобрение пассажира; `no_show` → только бронь без PIN: `no_show`, деньги водителю, пассажиру `no_shows` +1; `refund_full` → возврат, бронь `cancelled` от `system`, водителю `no_shows` +1; `refund_partial` → `amount_kz` пассажиру (`DISPUTE_AMOUNT_INVALID` вне 1..эскроу−1), остаток водителю минус комиссия пропорционально, бронь `completed`; пишет `moderation_actions(resolve_dispute)`, обеим сторонам `dispute_resolved` |
 | `request_payout(amount_kz)` | любой водитель с `payout_method` | `amount ≥ 5 000` (`AMOUNT_INVALID`); одна заявка в работе (`PAYOUT_PENDING`); не чаще раза в 24 часа (`RATE_LIMITED`, миграция 0023); `balance_kz ≥ amount` (`INSUFFICIENT_BALANCE`); ledger `payout:<id>` `driver_balance − / cash_out +`; заявка `requested` со снимком `payout_method`; админам `payout_requested` |
 | `mark_payout(payout_id, status, ref)` | admin | `processing` / `paid` / `failed` из `requested`/`processing`; `paid` → `provider_ref`, `processed_by/at`, водителю `payout_paid`; `failed` → ledger `payout_failed:<id>` `cash_out − / driver_balance +`, водителю `payout_failed` |
 | `send_message(body, conversation_id?, trip_id?) → message_id` | участник | без `conversation_id` — создаёт чат по (trip, passenger) для поездки в `published`/`full`; лимиты: 5 новых чатов без брони за сутки и 10 сообщений пассажира до оплаченной брони (`CHAT_LIMIT_REACHED`), 60 сообщений/мин (`RATE_LIMITED`); только в открытом чате (`CHAT_CLOSED`); маскирование триггером; получателю push `new_message` с превью, если он не был в чате последние 60 с |
@@ -555,7 +565,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 - `ledger_entries` after insert → пересчёт `profiles.balance_kz`; before update/delete → raise.
 - `messages` before insert → маскирование телефонов (`+244`/`00244`/`244` и 9 цифр либо мобильный на 9, между цифрами допускается до трёх символов из пробела, точки, дефиса и скобок: `923 456 789`, `(923) 456-789`, `+244 (923) 456 789`; запятая и слэш разделителями не считаются, чтобы не резать списки цен и даты), `wa.me`, `http(s)://` → «[oculto]», `masked = true`; пока у чата нет брони в `accepted`/`awaiting_confirm`/`completed`/`no_show`/`disputed` или до `departure_at − 2 ч`; системные сообщения не маскируются. After insert: третье замаскированное сообщение одного отправителя в чате → `reports(reporter_id = null, cash_offer)` один раз на чат и отправителя, админам `report_opened`.
 - `reviews` after insert → пересчёт `profiles.rating_avg`, `rating_count`; `is_visible`, если второй отзыв уже есть.
-- Финал брони: `complete_booking` (внутренняя, её вызывают `confirm_trip`, `resolve_dispute` и cron) → `completed`, ledger release, `trips_ridden` +1 на бронь, `review_request` обеим сторонам через 24 ч. Затем `settle_trip`: когда у поездки `departed` не осталось броней в `accepted`/`awaiting_confirm`/`disputed`, удержанные 50 % поздних отмен → release водителю, поездка → `completed`, `trips_driven` +1 на поездку (не на бронь), если хотя бы одна бронь дошла до `completed`/`no_show`.
+- Финал брони: `complete_booking` (внутренняя, её вызывают `confirm_trip`, `resolve_dispute` и cron; для неявки - `close_no_show`) → `completed`, ledger release, `trips_ridden` +1 на бронь, `review_request` обеим сторонам через 24 ч. Затем `settle_trip`: когда у поездки `departed` не осталось броней в `accepted`/`awaiting_confirm`/`disputed`, удержанные 50 % поздних отмен → release водителю, поездка → `completed`, `trips_driven` +1 на поездку (не на бронь), если хотя бы одна бронь дошла до `completed`/`no_show`.
 - Уведомления о переходах статусов пишут сами RPC и cron через `notify()` (inapp всегда, плюс push при живом токене, иначе SMS, если событие это допускает). Общего триггера нет: тексты и адресаты у каждого перехода разные. Инвариант "каждый переход пишет уведомление" проверяют тесты.
 - `profiles` before update → запрет менять `is_admin`, `status`, `driver_status`, `rating_*`, `balance_kz` не из `security definer`-функций.
 - `auth.users` after insert → создание строки в `profiles` с телефоном.
@@ -571,11 +581,11 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 | Напоминание −24 ч | `departure_at − 24 ч`, `reminded_24h_at is null` | водителю — «подтвердите, что едете» (`confirm_trip_intent`); пассажирам — время и место; отметка `reminded_24h_at` |
 | Водитель не подтвердил | `departure_at − 6 ч`, нет `driver_confirmed_at`, `reminded_6h_at is null` | пассажирам `driver_unconfirmed` («можно отменить бесплатно», правило уже работает в `cancel_quote`); водителю `trip_reminder_6h`; отметка |
 | PIN и телефон | `departure_at − 2 ч`, по броням `accepted`/`awaiting_confirm` с `pin_sent_at is null` | системное сообщение в чат о том, что PIN готов (без самого PIN: чат читает и водитель); пассажиру `pin_ready` (PIN + телефон водителя, push + SMS); водителю один раз `trip_reminder_2h` со списком пассажиров и телефонами; `pin_sent_at`. Бронь, принятая позже −2 ч, получает PIN на следующем тике. `reveal_contact` и маскирование смотрят на `departure_at − 2 ч` сами |
-| Выезд | `departure_at` | есть `accepted` → `trip → departed`, `accepted → awaiting_confirm`; нет → `expired` + удержания поздних отмен → `forfeit`; оставшиеся `pending_payment` → `payment_failed`, их платежи → `expired` |
-| «Вы доехали?» | `departure_at + minutes` из `route_durations` (по умолчанию +8 ч), `completed_ask_at is null` | `trip_completed_ask` пассажирам в `awaiting_confirm`; отметка |
-| Автозавершение быстрое | `awaiting_confirm`, есть `pin_entered_at`, прошло 48 ч после выезда, спора нет | `complete_booking(b, 'system')`: `completed`, ledger release, `settle_trip` |
-| Автозавершение | `awaiting_confirm` без PIN старше 7 дней | то же |
-| Водитель не приехал | поездка `departed`, ни одного PIN и ни одной `completed`/`no_show`, ≥ 1 спор пассажира (`disputed` с `passenger_confirmed_at`) старше 24 ч, и водитель не ответил: ни сообщения водителя в чате спорной брони после открытия спора, ни PIN, ни отметки «Cheguei» (`driver_arrived_at`) | все `awaiting_confirm`/`disputed` → `cancelled`, `cancelled_by = driver`, `cancel_reason = driver_no_show`, полный возврат; поездка → `cancelled`; водителю `cancels_total` +1, `no_shows` +1; удержания → `forfeit`. Если водитель ответил — ждём модератора (`resolve_dispute`) |
+| Выезд | `departure_at` (или раньше, при `start_trip`) | есть `accepted` → `trip → departed`, `accepted → awaiting_confirm`; нет → `expired` + удержания поздних отмен → `forfeit`; оставшиеся `pending_payment` → `payment_failed`, их платежи → `expired`; оставшиеся `requested` → `expired` с возвратом |
+| Напоминание о старте (`remind_start`) | поездка `departed`, старта нет, `departure_at + wait_minutes` прошло, есть брони | водителю `trip_start_reminder`, один раз (`start_reminded_at`) |
+| Страховка старта и завершения (`auto_close`) | старта нет 24 ч после `departure_at` и есть бронь с PIN; либо старт есть, а завершения нет 24 ч | система сама начинает и завершает поездку (`closed_by_system`), пассажиры получают те же уведомления и 24 ч, водителю `trip_auto_closed` |
+| Закрытие по сроку (`autocomplete`) | бронь с PIN: `finished_at + 24 ч`; бронь без PIN: `not_boarded_at + 24 ч`; спора нет | с PIN → `complete_booking(b, 'system')`: `completed`, ledger release; без PIN → `no_show`, release водителю, пассажиру `no_shows` +1; затем `settle_trip` |
+| Поездка не состоялась (`auto_close`) | поездка `departed`, старта нет 24 ч после `departure_at`, PIN нет ни у одной брони | все `awaiting_confirm` → `cancelled`, `cancelled_by = driver`, `cancel_reason = trip_not_started`, полный возврат; поездка → `cancelled`; водителю `cancels_total` +1 и `no_shows` +1, если есть жалоба пассажира с причиной `no_show` по этой поездке; удержания → `forfeit` |
 | Истечение поездок | `published`/`full` без `accepted`, `departure_at` в прошлом | → `expired` (внутри шага «Выезд») |
 | Возвраты в шлюз | view `pending_refunds` | не в `run_scheduler`: Edge `payments-refund` по своему `pg_cron`-расписанию читает view, ходит в шлюз, пишет `refund_ref` или `refund_attempts` +1 и `refund_failed_at`; после 3 попыток — ручная очередь в Telegram |
 | Закрытие чатов | бронь `completed`/`no_show` + 7 дней; бронь `cancelled`/`declined`/`expired` + 24 ч; бронь `payment_failed` или без брони — `departure_at + 24 ч`; поездка `cancelled`/`expired` + 24 ч | `conversations.closed_at` |
@@ -635,7 +645,7 @@ awaiting_confirm ──(пассажир: "не ехал")──► disputed ─
 
 - Имена полей `snake_case`; `*_at` — всегда `timestamptz` в ISO 8601 с `Z`; деньги — целые кванзы в полях `*_kz`.
 - Пагинация — keyset по `(departure_at, id)` для поездок и по `id` для сообщений, параметр `cursor`; никакого `offset`.
-- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`, `NOT_ADMIN`, `TRIP_CLOSED`, `TRIP_HAS_BOOKINGS`, `TRIP_FIELD_LOCKED`, `NO_SHOW_WINDOW_CLOSED`, `NO_SHOW_NEEDS_PIN`, `DISPUTE_OUTCOME_INVALID`, `DISPUTE_AMOUNT_INVALID`, `MESSAGE_EMPTY`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `REVIEW_WINDOW_CLOSED`, `REVIEW_DUPLICATE`, `RATING_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `AMOUNT_INVALID`, `PAYOUT_PENDING`, `PAYOUT_CLOSED`, `PAYOUT_STATUS_INVALID`, `PAYOUT_NOT_FOUND`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`, `VERIFICATION_CLOSED`, `REASON_REQUIRED`, `HAS_ACTIVE_BOOKINGS`, `BALANCE_NOT_ZERO`, `TARGET_IS_ADMIN`, `DAYS_REQUIRED`, `MODERATION_ACTION_INVALID`, `REPORT_NOT_FOUND`, `REPORT_CLOSED`, `REPORT_OUTCOME_INVALID`, `PLACE_NOT_FOUND`, `PLACE_SLUG_TAKEN`, `WAIT_INVALID`, `NO_SHOW_TOO_EARLY`, `ARRIVAL_WINDOW_CLOSED`, `YEAR_INVALID`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
+- Ошибки RPC — `raise exception` с кодом `P0001` и `message = 'BOLEIA_<CODE>'`: `TRIP_FULL`, `TRIP_NOT_BOOKABLE`, `PROFILE_INCOMPLETE`, `PROFILE_RESTRICTED`, `DRIVER_``LIMIT_REACHED, BOOKING_DUPLICATE, BOOKING_CLOSED, PAYMENT_PENDING, PAYMENT_PHONE_MISMATCH, PAYMENT_RETRY_LIMIT`, `TOO_LATE_TO_CANCEL`, `PIN_INVALID`, `PIN_WINDOW_CLOSED`, `CHAT_CLOSED`, `INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_PARTICIPANT`, `OWN_TRIP`, `SEATS_INVALID`, `MESSAGE_TOO_LONG`, `TRIP_NOT_FOUND`, `BOOKING_NOT_FOUND`, `BOOKING_LIMIT_REACHED`, `NOT_ADMIN`, `TRIP_CLOSED`, `TRIP_HAS_BOOKINGS`, `TRIP_FIELD_LOCKED`, `DISPUTE_OUTCOME_INVALID`, `DISPUTE_AMOUNT_INVALID`, `MESSAGE_EMPTY`, `CHAT_LIMIT_REACHED`, `CONTACT_LOCKED`, `REVIEW_WINDOW_CLOSED`, `REVIEW_DUPLICATE`, `RATING_INVALID`, `TAGS_INVALID`, `TARGET_INVALID`, `AMOUNT_INVALID`, `PAYOUT_PENDING`, `PAYOUT_CLOSED`, `PAYOUT_STATUS_INVALID`, `PAYOUT_NOT_FOUND`, `VERIFICATION_INCOMPLETE`, `VERIFICATION_PENDING`, `VERIFICATION_CLOSED`, `REASON_REQUIRED`, `HAS_ACTIVE_BOOKINGS`, `BALANCE_NOT_ZERO`, `TARGET_IS_ADMIN`, `DAYS_REQUIRED`, `MODERATION_ACTION_INVALID`, `REPORT_NOT_FOUND`, `REPORT_CLOSED`, `REPORT_OUTCOME_INVALID`, `PLACE_NOT_FOUND`, `PLACE_SLUG_TAKEN`, `WAIT_INVALID`, `START_TOO_EARLY`, `TRIP_NO_PASSENGERS`, `TRIP_NOT_STARTED`, `TRIP_NOT_FINISHED`, `DISPUTE_REASON_REQUIRED`, `DISPUTE_REASON_INVALID`, `DISPUTE_DETAILS_REQUIRED`, `YEAR_INVALID`. Только для service role и внутренних проверок: `PAYMENT_NOT_FOUND`, `PAYMENT_STATUS_INVALID`, `PAYMENT_REF_MISMATCH`, `LEDGER_UNBALANCED`, `LEDGER_IMMUTABLE`, `PROTECTED_FIELD`. Клиенты мапят код на текст pt-AO локально.
 - Телефон во всех ответах — только через `reveal_contact`, в формате E.164; кнопка «Позвонить» — `tel:`, никаких `wa.me`.
 - Версионирование — views не ломаются: новые поля добавляются, старые не удаляются и не переименовываются минимум 2 релиза Flutter (магазины обновляют пользователей медленно).
 
@@ -715,11 +725,13 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 | `booking_expired` | пассажир | push / SMS | «Водитель не ответил, 8 000 Kz возвращаются» |
 | `reconciliation_alert` | admin | push / in-app | расхождение ledger и `payments` |
 | `trip_reminder_2h` + `pin_ready` | все стороны | push + SMS | пассажиру — PIN, телефон водителя и «O condutor espera até HH:MM» (`wait_until`); водителю — телефоны пассажиров |
-| `driver_arrived` | пассажиры | push + SMS | «Condutor no local. Espera até HH:MM» |
-| `trip_completed_ask` | пассажир | push / SMS | «Вы доехали? Да / Нет» |
-| `dispute_opened` | вторая сторона | push / SMS | «Пассажир сообщил, что не ехал» / «Водитель сообщил, что вы не пришли». Модерация разберёт |
+| `trip_started_without_you` | пассажир без PIN | push + SMS | "A viagem começou sem si. Conteste em 24 horas" (`respond_until`) |
+| `trip_start_reminder` | водитель | push / SMS | "Já partiu? Inicie a viagem" по окончании времени ожидания |
+| `trip_finished` | пассажир с PIN | push + SMS | "Viagem concluída. Avalie ou conteste em 24 horas" (`respond_until`, `by_system`) |
+| `trip_auto_closed` | водитель | push / SMS | система сама начала или завершила поездку (`step`: `start` / `finish`) |
+| `dispute_opened` | водитель | push / SMS | "O passageiro contestou a viagem" (`reason`). Модерация разберёт |
 | `dispute_resolved` | обе стороны | push / SMS | решение модератора |
-| `booking_no_show` | пассажир | push / SMS | «Водитель отметил, что вы не пришли. Бронь закрыта без возврата» |
+| `booking_no_show` | пассажир | push / SMS | "Não embarcou. Reserva fechada sem reembolso": 24 ч на возражение прошли или так решил модератор |
 | `payout_released` | водитель | push | «+6 300 Kz на баланс за поездку 12 ноя» |
 | `payout_paid` / `payout_failed` | водитель | push / SMS | — |
 | `verification_approved` / `verification_rejected` | водитель | push / SMS | с причиной при отказе |
@@ -728,7 +740,7 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 
 **Deep links**: `boleia://trip/<id>`, `boleia://booking/<id>` для Flutter; web — `https://boleia.ao/t/<id>` с universal links / app links на те же пути. Все уведомления ведут на экран, где можно сразу сделать действие.
 
-**Тихие часы** — не слать push и SMS с 22:00 до 07:00 по Луанде, кроме платежей, отмен и напоминания за 2 ч; остальное откладывается через `scheduled_for`. Реализовано в `notify()`: срочные типы — `payment_*`, `booking_*`, `dispute_*`, `trip_cancelled`, `refund_done`, `pin_ready`, `trip_reminder_2h`, `reconciliation_alert`; для остальных строки `push`/`sms` получают `scheduled_for` = ближайшие 07:00 Africa/Luanda, `inapp` пишется сразу. Edge `notify` отправляет только строки с `scheduled_for is null or <= now()`. Стоимость SMS через castbrick × ожидаемый объём — посчитать до запуска (раздел 14).
+**Тихие часы** — не слать push и SMS с 22:00 до 07:00 по Луанде, кроме платежей, отмен и напоминания за 2 ч; остальное откладывается через `scheduled_for`. Реализовано в `notify()`: срочные типы — `payment_*`, `booking_*`, `dispute_*`, `trip_cancelled`, `refund_done`, `pin_ready`, `trip_reminder_2h`, `reconciliation_alert`, `trip_started_without_you`, `trip_finished`; для остальных строки `push`/`sms` получают `scheduled_for` = ближайшие 07:00 Africa/Luanda, `inapp` пишется сразу. Edge `notify` отправляет только строки с `scheduled_for is null or <= now()`. Стоимость SMS через castbrick × ожидаемый объём — посчитать до запуска (раздел 14).
 
 ## 10. Платежи — Multicaixa Express в MVP
 
@@ -773,7 +785,7 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 
 **Возвраты** — через API шлюза, если он их поддерживает (у Access Bank в FAQ заявлен «упрощённый процесс возврата»); иначе — переводом на номер пассажира в MCX Express из той же ручной очереди. Срок возврата пассажиру обещать «1–3 рабочих дня» до выяснения.
 
-**PIN-код**: пассажир называет 4 цифры при посадке, водитель вводит → `pin_entered_at`. Спор без PIN решается в пользу пассажира; `no_show` без PIN других пассажиров не ставится. Это главное доказательство в спорах о деньгах.
+**PIN-код**: пассажир называет 4 цифры при посадке, водитель вводит → `pin_entered_at`. Это главное доказательство в спорах о деньгах и условие всего дальнейшего: без PIN бронь нельзя завершить, а поездка без единого PIN и без старта отменяется с полным возвратом. PIN видит только пассажир (миграции 0021, 0022).
 
 ## 11. Модерация и админка
 
@@ -783,7 +795,7 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 
 - Заявка на верификацию: фото документа, прав, машины, селфи → «Одобрить» / «Отклонить: причина». Цель — ответ за < 12 ч, иначе водители уходят.
 - Новая жалоба: контекст + история обоих + чат по этой брони → «Отклонить» / «Предупредить» / «Ограничить» / «Бан».
-- `disputed` после «не ехал»: чат, PIN, версии сторон → `completed` или возврат.
+- `disputed`: причина и комментарий пассажира, чат, PIN, жалобы, версии сторон → `completed`, `no_show` или возврат.
 - Автожалоба `cash_offer` (3 замаскированных сообщения) → просмотр чата → предупреждение или бан.
 - Заявка на выплату: сумма, метод, история водителя → «Выплачено (ref)» / «Отклонить».
 - Алерт сверки: расхождение `payments` и ledger за вчера.
@@ -816,8 +828,8 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 | Профиль публичный | P0 | данные доверия, ✓, отзывы, «пожаловаться» | `profiles_public`, `reviews` |
 | Мой профиль | P0 | редактирование, машины, способ выплаты, удалить аккаунт | `upsert_profile`, `upsert_vehicle`, `delete_me` |
 | Опубликовать поездку | P0 | мастер в 4 шага: маршрут + точки, дата/время, места + цена (подсказка по медиане маршрута), опции (багаж, «máx. 2 atrás»; курение и животные в UI нет — раздел 15), время ожидания опоздавших (30 / 45 / 60); превью → публикация; выбор режима брони (автобронь / подтверждать вручную); для unverified — плашка «пройдите верификацию: ✓ и выше в выдаче» | `publish_trip` |
-| Мои поездки (водитель) | P0 | «Предстоящие / Прошлые»; в карточке — оплаченные запросы с принять/отклонить, кнопка в чат, ввод PIN в день поездки, «не пришёл», отмена | `trips` + `bookings`, `respond_booking`, `enter_pin`, `mark_no_show`, `cancel_trip` |
-| Мои брони (пассажир) | P0 | статус с деньгами («7 700 Kz удержано», «возвращено»), чат, PIN и телефон в день поездки, отмена с показом суммы возврата, «Вы доехали?» | `my_bookings`, `cancel_booking`, `confirm_trip`, `reveal_contact` |
+| Мои поездки (водитель) | P0 | "Предстоящие / Прошлые"; в карточке - оплаченные запросы с принять/отклонить, кнопка в чат; в день поездки список пассажиров с вводом PIN, "Iniciar viagem" (без PIN у всех - "Ninguém apareceu"), затем "Concluir viagem"; после - когда придут деньги по каждой брони; отмена до выезда | `trips` + `my_bookings`, `respond_booking`, `enter_pin`, `start_trip`, `finish_trip`, `cancel_trip` |
+| Мои брони (пассажир) | P0 | экран по `stage`: статус с деньгами, чат, PIN и телефон на посадке, отмена с показом суммы возврата, "Em viagem" с жалобой и поддержкой, после завершения "Avaliar" или "Contestar" со сроком, "A viagem começou sem si" с правом возразить | `my_bookings`, `cancel_booking`, `confirm_trip`, `open_dispute`, `report_user`, `reveal_contact` |
 | Чаты | P0 | список чатов с непрочитанными; экран чата: сообщения, системные вставки (статусы, "PIN готов" без цифр), плашка «номера скрыты до дня поездки» | `my_conversations`, `messages`, `send_message`, `mark_read` |
 | Кошелёк (водитель) | P0 | баланс, «в ожидании» по будущим поездкам, история начислений, кнопка «Levantar», список выплат | `driver_wallet`, `request_payout`, `payouts` |
 | Оценить | P0 | звёзды, теги, комментарий; открывается из уведомления | `submit_review` |
@@ -926,7 +938,7 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 - [x] Фильтр «только женщина-водитель» и пол в профиле — нет.
 - [x] Обратная поездка одной кнопкой («Criar viagem de regresso» копирует поездку с перестановкой городов) — да; повторяющиеся поездки по расписанию — нет.
 - [x] Точки посадки: список `places kind = landmark` (терминал Macon, Gamek, Kilamba…) + свободный текст.
-- [x] Длительность маршрута для «Вы доехали?»: таблица `route_durations` руками для стартовых маршрутов, по умолчанию +8 ч.
+- [x] Длительность маршрута: таблица `route_durations` руками для стартовых маршрутов, по умолчанию +8 ч. После миграции 0025 нужна только для подсказок и SEO: вопрос "Вы доехали?" по расчётному времени убран.
 - [x] Ориентир цены: подсказка руками для стартовых маршрутов, потом медиана; без жёсткого потолка.
 
 **Верификация**
@@ -971,6 +983,19 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 - [x] Название Boleia — пробуем; домен и бренд нужны до I2.
 - [ ] Бухгалтерия по ledger — см. «Платежи».
 
+**Ход поездки (решено 24-25 ноя 2026, миграция 0025, план `docs/plans/0025_trip_start_finish.md`)**
+
+- [x] Как в такси: водитель вводит PIN, начинает и завершает поездку; пассажир называет PIN, в пути может пожаловаться, после завершения оценивает или оспаривает.
+- [x] Старт только кнопкой водителя: сразу, если PIN у всех, иначе после времени ожидания. Автостарта нет, водитель может ждать опоздавшего дольше.
+- [x] "Начать" без единого PIN - "никто не пришёл": иначе передумавшему пассажиру выгоднее не отменять бронь (50 %), а не прийти (100 %).
+- [x] "Завершить" доступно сразу после старта; раннее завершение пассажиры оспорят.
+- [x] Деньги уходят водителю после оценки пассажира или через 24 ч без возражений, а не в момент нажатия водителя. То же для неявки.
+- [x] Одобрение пассажира - нажатие "Avaliar"; отдельной кнопки "поездка состоялась" нет.
+- [x] Жалоба в пути - `report_user`, на деньги не влияет; спор - только после завершения или после "поездка началась без вас", причина и комментарий обязательны.
+- [x] Страховка от забывчивости: без старта 24 ч после выезда система начинает и завершает поездку сама (есть PIN) или отменяет её с возвратом 100 % и отменой в счётчик водителю (PIN нет); без завершения 24 ч после старта завершает сама.
+- [x] Отмена закрывается по времени выезда для обеих сторон, а не по кнопке старта; бронь с введённым PIN не отменяется и до времени выезда.
+- [x] Убраны: "Cheguei" и "Não apareceu" у водителя, "Sim, cheguei", "Não viajei" и вопрос "Chegou bem?" у пассажира, автозавершение 48 ч / 7 дней, правило "водитель не приехал" по спору.
+
 ## 16. Спорные решения и их цена
 
 Решения ниже приняты, но у каждого есть сценарий, в котором оно бьёт по продукту. Здесь — что именно может пойти не так, по какой метрике это увидеть и что менять, если метрика пробита. Это не список на пересмотр сейчас, а список на проверку после первого месяца.
@@ -982,8 +1007,8 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 | Непроверенный водитель публикует и выводит деньги | пассажир платит человеку, о котором известен только номер; спор без документов | жалобы на unverified в 2 раза чаще, чем на verified; хотя бы один инцидент с безопасностью | лимиты для unverified (1 поездка, 3 места) или публикация только после загрузки документов |
 | Комиссия 10 %, минимум 1 000 Kz за место | на дешёвых маршрутах комиссия 20-33 % при любом числе мест, пассажиры уходят на экране оплаты | конверсия «экран оплаты → paid» по маршрутам < 10 000 Kz ниже дорогих на 20+ п.п. | минимум 500 Kz или процент без минимума на маршрутах < 5 000 Kz |
 | Номер MCX Express = номер аккаунта | часть пассажиров платит с чужого телефона и получает отказ | `PAYMENT_PHONE_MISMATCH` > 5 % платежей | разрешить второй «платёжный номер» в профиле с подтверждением по OTP |
-| Выплата только после подтверждения пассажира или таймаута | водитель без PIN ждёт деньги до 7 дней; уходит к наличным | среднее время от выезда до `completed` > 3 дней; жалобы водителей | быстрый release через 48 ч для всех, не только с PIN; спор пассажира после release — из баланса водителя |
-| `no_show` только при PIN другого пассажира | водитель единственного пассажира, который не пришёл, не может это зафиксировать; пассажир молчит 7 дней и всё равно `completed`, но может открыть спор без доказательств | споры по поездкам с одним пассажиром > 20 % | фото точки посадки с таймстампом как доказательство водителя (этап 2) |
+| Выплата через 24 ч после завершения, а не сразу | честный водитель ждёт сутки, если пассажир не нажал "Avaliar"; забывчивый - до 48 ч | среднее время от завершения до `completed` > 20 ч; жалобы водителей | окно 12 ч; мгновенная выплата водителям с историей без споров |
+| Неявка и "никто не пришёл" по слову водителя с окном 24 ч | нечестный водитель может начать поездку без пассажира, который стоял рядом: пассажир должен успеть возразить за 24 ч, иначе теряет оплату | споры `was_there` > 10 % броней без PIN; жалобы пассажиров "не успел возразить" | окно 48 ч для `not_boarded`; обязательный звонок пассажиру перед стартом (отметка в `contact_reveals`) |
 | Ответ водителя 24 ч | на поездку через 10 ч водитель фактически имеет 9 ч; протухание = возврат и потерянная комиссия шлюза | доля `expired` по поездкам < 24 ч до выезда > 25 % | окно 6 ч для поездок ближе 24 ч + push водителю каждые 2 ч |
 | Только онлайн-оплата, без наличных | режем рынок до тех, у кого есть MCX Express и готовность платить вперёд | отказы на экране оплаты и уход после просмотра цены (события `trip_view` → `booking_request`) | не пересматривать первый месяц; дальше — «оплата в день поездки» как промежуточный шаг, не наличные |
 | Ручные выплаты и возвраты | задержки, ошибки, нагрузка на одного человека | > 50 заявок в неделю или задержка выплат > 7 дней | API выплат банка или PSP; до этого — второй человек с доступом к счёту |
@@ -992,6 +1017,6 @@ Payload каждого уведомления с `trip_id` или `booking_id` �
 **Юридические пункты, которые не закрыты документом и не закроются кодом**
 
 - Квалификация сервиса: partilha de custos или перевозка — определяет, нужны ли лицензии водителям и платформе.
-- Удержание денег пассажиров до 7 дней — с точки зрения BNA может быть деятельностью платёжного учреждения; ответ юриста нужен до подписания договора с банком.
+- Удержание денег пассажиров до конца поездки плюс до 48 ч (спор - до решения модератора) - с точки зрения BNA может быть деятельностью платёжного учреждения; ответ юриста нужен до подписания договора с банком.
 - Персональные данные: в Анголе действует закон о защите персональных данных (Lei n.º 22/11) и надзорный орган; документы верификации и телефоны — персональные данные, нужны согласие при регистрации и политика хранения (в документе — 30 дней для документов, 12 месяцев для чатов). Уточнить у юриста, требуется ли уведомление регулятора.
 - IVA 14 % на комиссию платформы — влияет на цену, которую видит пассажир.

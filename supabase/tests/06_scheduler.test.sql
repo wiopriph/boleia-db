@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(104);
+select plan(110);
 
 -- ---------------------------------------------------------------------------
 -- Контекст и хелперы. Сид-поездки отменяются, сценарии строят свои с выездом D = now() + 100 дней,
@@ -70,6 +70,7 @@ insert into ctx values
   ('D',      (now() + interval '100 days')::text);
 
 update public.trips set status = 'cancelled', cancelled_at = now();  -- сид-поездки в сторону
+delete from public.scheduler_jobs;  -- локальный pg_cron мог успеть отработать после db reset
 
 select pg_temp.mk_trip('A', 'joao',   'luanda', 'benguela', pg_temp.d('0'), 'instant');
 select pg_temp.mk_trip('B', 'teresa', 'luanda', 'benguela', pg_temp.d('0'), 'approval');
@@ -212,59 +213,71 @@ select is((select status::text from public.trips where id = pg_temp.cu('K')), 'e
 select is((select status::text from public.trips where id = pg_temp.cu('H')), 'departed', 'H departed');
 
 -- ---------------------------------------------------------------------------
--- 7. "Вы доехали?" по route_durations (G: 420) и по умолчанию (E: 480)
+-- 7. Напоминание водителю о старте по окончании ожидания (30 мин)
 -- ---------------------------------------------------------------------------
-select pg_temp.run('r419', pg_temp.d('419 minutes'));
-select ok((select completed_ask_at is null from public.trips where id = pg_temp.cu('G')), 'not asked at 419 min');
-select pg_temp.run('r420', pg_temp.d('420 minutes'));
-select is(pg_temp.notif('ana', 'trip_completed_ask', 'G'), 1::bigint, 'asked at 420 min (route_durations)');
-select ok((select completed_ask_at is null from public.trips where id = pg_temp.cu('E')), 'E not yet (default 480)');
-select pg_temp.run('r480', pg_temp.d('480 minutes'));
-select is(pg_temp.notif('ana', 'trip_completed_ask', 'E'), 1::bigint, 'E asked at 480 min');
+select pg_temp.run('r29m', pg_temp.d('29 minutes'));
+select is(pg_temp.notif('joao', 'trip_start_reminder', 'G'), 0::bigint, 'no reminder before the wait ends');
+select pg_temp.run('r30m', pg_temp.d('30 minutes'));
+select is(pg_temp.notif('joao', 'trip_start_reminder', 'G'), 1::bigint, 'G driver reminded to start');
+select is(pg_temp.notif('pedro', 'trip_start_reminder', 'H'), 1::bigint, 'H driver reminded to start');
+select pg_temp.run('r35m', pg_temp.d('35 minutes'));
+select is(pg_temp.notif('joao', 'trip_start_reminder', 'G'), 1::bigint, 'reminded only once');
 
 -- ---------------------------------------------------------------------------
--- 8. Водитель не приехал: спор без PIN, 24 ч без ответа водителя
+-- 8. Страховка через 24 ч после выезда. RPC смотрят на настоящее now(), поэтому старт и завершение
+--    здесь идут через ядро с явным временем.
+--    E: Ana села, João начал и завершил. G: ни PIN, ни старта. H: Teresa села, Pedro ничего не нажал.
 -- ---------------------------------------------------------------------------
-select pg_temp.as_user(pg_temp.cu('ana'));
-select lives_ok($$ select public.confirm_trip(pg_temp.cu('a_G'), false) $$, 'Ana disputes G');
-select pg_temp.as_user(pg_temp.cu('teresa'));
-select lives_ok($$ select public.confirm_trip(pg_temp.cu('t_H'), false) $$, 'Teresa disputes H');
-reset role;
-insert into public.messages (conversation_id, sender_id, body)
-  select id, pg_temp.cu('pedro'), 'Estive lá às 6h, esperei 30 min.' from public.conversations where booking_id = pg_temp.cu('t_H');
+update public.bookings set pin_entered_at = pg_temp.d('-10 minutes') where id = pg_temp.cu('a_E');
+select public.start_trip_core(pg_temp.cu('E'), pg_temp.d('40 minutes'), false);
+select public.finish_trip_core(pg_temp.cu('E'), pg_temp.d('8 hours'), false);
+select is(pg_temp.notif('ana', 'trip_finished', 'E'), 1::bigint, 'Ana asked to rate or contest E');
+update public.bookings set pin_entered_at = pg_temp.d('5 minutes') where id = pg_temp.cu('t_H');
 insert into ctx values ('joao_cancels', (select cancels_total::text from public.profiles where id = pg_temp.cu('joao')));
-select pg_temp.run('r9h', pg_temp.d('9 hours'));
-select is(pg_temp.c('r9h')::jsonb ->> 'driver_no_show', '1', 'one trip auto-cancelled');
-select is((select (status::text, cancel_reason) from public.trips where id = pg_temp.cu('G')), ('cancelled'::text, 'driver_no_show'::text), 'G cancelled for driver no-show');
+
+select pg_temp.run('r23h', pg_temp.d('23 hours 59 minutes'));
+select is((select status::text from public.trips where id = pg_temp.cu('G')), 'departed', 'G untouched before 24h');
+select ok((select started_at is null from public.trips where id = pg_temp.cu('H')), 'H not started before 24h');
+select pg_temp.run('r24h', pg_temp.d('24 hours'));
+select ok((pg_temp.c('r24h')::jsonb ->> 'auto_close')::integer >= 2, 'G and H closed by the system');
+select is((select (status::text, cancel_reason) from public.trips where id = pg_temp.cu('G')), ('cancelled'::text, 'trip_not_started'::text), 'G cancelled: no PIN, no start');
 select is((select (status::text, cancelled_by::text, cancel_reason, refund_kz) from public.bookings where id = pg_temp.cu('a_G')),
-  ('cancelled'::text, 'driver'::text, 'driver_no_show'::text, 8000), 'Ana refunded in full');
+  ('cancelled'::text, 'driver'::text, 'trip_not_started'::text, 8000), 'Ana refunded in full');
 select is(public.escrow_balance_kz(pg_temp.cu('a_G')), 0, 'escrow emptied');
 select is((select (cancels_total, no_shows) from public.profiles where id = pg_temp.cu('joao')),
-  ((pg_temp.c('joao_cancels')::integer + 1)::smallint, 1::smallint), 'driver cancels_total +1, no_shows +1');
-select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('ana') and type = 'trip_cancelled' and payload ->> 'reason' = 'driver_no_show'), 'passenger told');
-select is((select status::text from public.trips where id = pg_temp.cu('H')), 'departed', 'H untouched: driver answered in chat');
-select is((select status::text from public.bookings where id = pg_temp.cu('t_H')), 'disputed', 'H dispute waits for moderator');
+  ((pg_temp.c('joao_cancels')::integer + 1)::smallint, 0::smallint), 'driver cancels_total +1; no_shows only with a passenger report');
+select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('ana') and type = 'trip_cancelled' and payload ->> 'reason' = 'trip_not_started'), 'passenger told');
+select is((select (started_at, finished_at, closed_by_system) from public.trips where id = pg_temp.cu('H')),
+  (pg_temp.d('24 hours'), pg_temp.d('24 hours'), true), 'H started and finished by the system');
+select is(pg_temp.notif('teresa', 'trip_finished', 'H'), 1::bigint, 'boarded passenger asked to rate or contest');
+select is(pg_temp.notif('admin', 'trip_started_without_you', 'H'), 1::bigint, 'passenger without PIN told the trip left');
+select is(pg_temp.notif('pedro', 'trip_auto_closed', 'H'), 1::bigint, 'driver told the system closed the trip');
+select ok((select closed_at is not null from public.conversations where trip_id = pg_temp.cu('K')), 'bookingless chat closed 24h after departure');
 
 -- ---------------------------------------------------------------------------
--- 9. Автозавершение: 48 ч с PIN (E), 7 дней без PIN (admin на H)
+-- 9. Срок на возражение: 24 ч после завершения (E) и после "поездка началась без вас" (admin на H)
 -- ---------------------------------------------------------------------------
-update public.bookings set pin_entered_at = now() where id = pg_temp.cu('a_E');
-select pg_temp.run('r47h', pg_temp.d('47 hours'));
-select is((select status::text from public.bookings where id = pg_temp.cu('a_E')), 'awaiting_confirm', 'not yet at 47h');
-select ok((select closed_at is not null from public.conversations where booking_id = pg_temp.cu('a_G')), 'cancelled booking chat closed after 24h');
-select ok((select closed_at is not null from public.conversations where trip_id = pg_temp.cu('K')), 'bookingless chat closed 24h after departure');
-select pg_temp.run('r48h', pg_temp.d('48 hours'));
-select is((select status::text from public.bookings where id = pg_temp.cu('a_E')), 'completed', 'auto-completed at 48h with PIN');
+select pg_temp.run('r31h', pg_temp.d('31 hours 59 minutes'));
+select is((select status::text from public.bookings where id = pg_temp.cu('a_E')), 'awaiting_confirm', 'not yet 24h after the finish');
+select pg_temp.run('r32h', pg_temp.d('32 hours'));
+select is((select status::text from public.bookings where id = pg_temp.cu('a_E')), 'completed', 'auto-completed 24h after the finish');
 select is(public.escrow_balance_kz(pg_temp.cu('a_E')), 0, 'released');
 select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('a_E') and account = 'driver_balance'), 7000, 'driver paid');
 select is((select status::text from public.trips where id = pg_temp.cu('E')), 'completed', 'E settled');
 select is((select trips_driven from public.profiles where id = pg_temp.cu('joao')), 15, 'trips_driven +1');
 
-select pg_temp.run('r6d', pg_temp.d('6 days'));
-select is((select status::text from public.bookings where id = pg_temp.cu('adm_H')), 'awaiting_confirm', 'no PIN: not yet at 6 days');
-select pg_temp.run('r7d', pg_temp.d('7 days'));
-select is((select status::text from public.bookings where id = pg_temp.cu('adm_H')), 'completed', 'auto-completed at 7 days');
+select pg_temp.as_user(pg_temp.cu('teresa'));
+select lives_ok($$ select public.open_dispute(pg_temp.cu('t_H'), 'left_midway', 'O condutor deixou-me a meio do caminho') $$, 'Teresa contests H');
+reset role;
+select pg_temp.run('r47h', pg_temp.d('47 hours 59 minutes'));
+select is((select status::text from public.bookings where id = pg_temp.cu('adm_H')), 'awaiting_confirm', 'not boarded: the 24h window is still open');
+select pg_temp.run('r48h', pg_temp.d('48 hours'));
+select is((select status::text from public.bookings where id = pg_temp.cu('adm_H')), 'no_show', 'silent not-boarded passenger closes as no_show');
+select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('adm_H') and account = 'driver_balance'), 7000, 'driver paid for the no_show');
+select is((select status::text from public.bookings where id = pg_temp.cu('t_H')), 'disputed', 'H dispute waits for the moderator');
 select is((select status::text from public.trips where id = pg_temp.cu('H')), 'departed', 'H still open: Teresa disputed');
+select pg_temp.run('r49h', pg_temp.d('49 hours'));
+select ok((select closed_at is not null from public.conversations where booking_id = pg_temp.cu('a_G')), 'cancelled booking chat closed after 24h');
 
 -- ---------------------------------------------------------------------------
 -- 10. Видимость отзыва через 14 дней; закрытие чата через 7 дней после completed

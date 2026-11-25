@@ -43,16 +43,17 @@ RPC_DOC = {
     "update_trip": "Цена/места/детали пока нет оплаченных броней; время пока нет броней; booking_mode всегда.",
     "confirm_trip_intent": "Водитель подтверждает, что едет (ответ на напоминание -24 ч).",
     "cancel_trip": "Отмена поездки водителем с каскадом возвратов по броням.",
-    "driver_arrived": "Водитель на месте встречи (окно departure_at - 3 ч .. departure_at + wait_minutes). Пассажирам driver_arrived; при споре это ответ водителя. -> {driver_arrived_at, wait_until, already?}.",
     "request_booking": "Бронь pending_payment + платёж created. Дальше functions/payments-init.",
     "retry_payment": "Новая попытка оплаты из payment_failed, не больше 3 на бронь.",
     "respond_booking": "Водитель принимает или отклоняет запрос (approval-поездки).",
     "cancel_quote": "Сумма возврата и правило до подтверждения отмены: {refund_kz, gateway_fee_kz, held_kz, rule}.",
     "cancel_booking": "Отмена брони пассажиром или водителем по таблице возвратов ТЗ раздела 5.",
-    "enter_pin": "Водитель вводит PIN пассажира. {ok, attempts_left}; 5 неверных за 10 мин -> RATE_LIMITED.",
-    "confirm_trip": "Пассажир: доехал (true -> completed, деньги водителю) или не ехал (false -> disputed).",
-    "mark_no_show": "Водитель: пассажир не пришёл. Не раньше departure_at + wait_minutes (NO_SHOW_TOO_EARLY); нужен PIN другого пассажира, иначе спор.",
-    "resolve_dispute": "Admin: completed | refund_full | refund_partial(amount_kz).",
+    "enter_pin": "Водитель вводит PIN пассажира: с departure_at - 3 ч и до завершения поездки. {ok, attempts_left}; 5 неверных за 10 мин -> RATE_LIMITED. После PIN бронь не отменяется; PIN после старта снимает отметку \"не сел\".",
+    "confirm_trip": "Пассажир одобряет завершённую поездку (кнопка \"Avaliar\"): только true, только бронь с PIN после finish_trip (TRIP_NOT_FINISHED) -> completed, деньги водителю. false -> DISPUTE_REASON_REQUIRED, спор открывает open_dispute.",
+    "start_trip": "Водитель начинает поездку и фиксирует, кто сел. Сразу, если PIN у всех; иначе не раньше departure_at + wait_minutes (START_TOO_EARLY); без единого PIN это \"никто не пришёл\". Брони без PIN получают not_boarded_at и 24 ч на возражение. -> {started_at, on_board, not_boarded, already?}.",
+    "finish_trip": "Водитель завершает начатую поездку (TRIP_NOT_STARTED). Пассажирам с PIN уходит trip_finished: 24 ч на оценку или спор. -> {finished_at, asked, already?}.",
+    "open_dispute": "Пассажир оспаривает: после finish_trip (reason: not_arrived | left_midway | unsafe | other) или после \"поездка началась без вас\" (was_there | driver_left_early | other). details 5-500 знаков. -> disputed, деньги заморожены.",
+    "resolve_dispute": "Admin: completed | refund_full | refund_partial(amount_kz) | no_show (только бронь без PIN: неявка, деньги водителю).",
     "send_message": "Сообщение в чат; без conversation_id создаёт чат по trip_id. Лимиты и маскирование в SQL.",
     "mark_read": "Отметить чужие сообщения прочитанными до up_to_message_id.",
     "reveal_contact": "Телефон второй стороны: только accepted/awaiting_confirm и с departure_at - 2 ч.",
@@ -87,9 +88,9 @@ RPC_DOC = {
 
 CLIENT_RPC_ORDER = [
     "search_trips", "price_hint", "upsert_profile", "upsert_vehicle", "register_device", "mark_notifications_read",
-    "publish_trip", "create_return_trip", "update_trip", "confirm_trip_intent", "driver_arrived", "cancel_trip",
+    "publish_trip", "create_return_trip", "update_trip", "confirm_trip_intent", "cancel_trip", "start_trip", "finish_trip",
     "request_booking", "retry_payment", "respond_booking", "cancel_quote", "cancel_booking",
-    "enter_pin", "confirm_trip", "mark_no_show", "resolve_dispute",
+    "enter_pin", "confirm_trip", "open_dispute", "resolve_dispute",
     "send_message", "mark_read", "reveal_contact", "submit_review", "report_user",
     "request_payout", "mark_payout", "submit_verification", "review_verification", "delete_me", "is_admin",
     "admin_search_users", "admin_moderate", "admin_resolve_report", "admin_cancel_trip", "admin_cancel_booking",
@@ -112,7 +113,7 @@ def enums() -> str:
 VIEW_DOC = {
     "trips_public": "Поездки в published/full для поиска и карточки. Без телефона и номера машины. В UI MVP из опций только luggage и max_two_in_back; allows_smoking, allows_pets, driver_chat_level не показывать (ТЗ раздел 15).",
     "profiles_public": "Публичный профиль: доверие, рейтинг, бейдж отмен. Без телефона и баланса.",
-    "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until и driver_arrived_at - контракт ожидания; "
+    "my_bookings": "Брони текущего пользователя с обеих сторон: пассажир видит свои, водитель - брони своих поездок; wait_until - до скольки водитель обязан ждать (driver_arrived_at всегда null, оставлено для совместимости); stage - этап брони, respond_until - срок на оценку или спор; "
                    "(фильтр по auth.uid() внутри view). Для водителя заполнены passenger_*; для пассажира - driver_* и "
                    "vehicle_*; pin_code появляется с departure_at - 2 ч и только у пассажира брони (водителю всегда null). cancel_reason объясняет payment_failed и cancelled. "
                    "passenger_rating_count = 0 значит оценок нет: рейтинг 0,00 не показывать.",
@@ -261,8 +262,34 @@ DOC = f"""# Boleia API: контракт для клиентов
 **Отмена.** `cancel_quote(booking_id)` показывает сумму и правило -> `cancel_booking(booking_id, reason)`.
 
 **День поездки.** С `departure_at - 2 ч` в `my_bookings.pin_code` у пассажира появляется PIN (водитель его не получает нигде: ни в чате, ни в views, ни в `bookings`), `reveal_contact`
-отдаёт телефон. Водитель вводит PIN: `enter_pin`. После выезда пассажиру приходит `trip_completed_ask`:
-`confirm_trip(booking_id, true|false)`. Водитель может отметить `mark_no_show`.
+отдаёт телефон. Дальше как в такси (миграция 0025):
+
+1. Водитель вводит PIN каждого пассажира: `enter_pin`. Бронь с PIN пассажир отменить уже не может.
+2. Водитель начинает поездку: `start_trip`. Сразу, если PIN у всех; иначе после `wait_until`. Брони
+   без PIN получают `not_boarded_at`, пассажиру уходит `trip_started_without_you`.
+3. Водитель завершает: `finish_trip`. Пассажирам с PIN уходит `trip_finished`.
+4. Пассажир до `respond_until` (24 ч) нажимает "Avaliar" -> `confirm_trip(booking_id, true)` и затем
+   `submit_review`, либо "Contestar" -> `open_dispute(booking_id, reason, details)`. Молчание закрывает
+   бронь в пользу водителя: с PIN - `completed`, без PIN - `no_show`.
+
+Экран выбирается по `my_bookings.stage`:
+
+| `stage` | Что это | Действия пассажира |
+| --- | --- | --- |
+| `payment` | ждёт оплаты или оплата не прошла | оплатить, повторить |
+| `requested` | оплачено, ждёт ответа водителя | снять запрос |
+| `accepted` | принято, до выезда больше 2 ч | отменить, чат |
+| `boarding` | посадка: PIN и телефон открыты | назвать PIN; отменить до времени выезда |
+| `on_board` | PIN введён, поездка не начата | жалоба `report_user`, поддержка |
+| `in_trip` | поездка идёт | жалоба `report_user`, поддержка |
+| `finished` | водитель завершил | "Avaliar" или "Contestar" до `respond_until` |
+| `not_boarded` | поездка началась без пассажира | "Contestar" до `respond_until` |
+| `disputed`, `completed`, `no_show`, `cancelled`, `declined`, `expired` | как `status` | отзыв после `completed` и `no_show` |
+
+Жалоба в пути - `report_user(target_id, reason, details, trip_id, booking_id)`, на деньги не влияет.
+Если водитель забыл нажать: без старта через 24 ч после выезда система сама начинает и завершает
+поездку (есть PIN) или отменяет её с возвратом 100 % (PIN нет ни у кого); без завершения через 24 ч
+после старта завершает сама. Водителю приходит `trip_auto_closed`.
 
 **Водитель.** `upsert_profile` (аватар, payout_method) -> `upsert_vehicle` -> `publish_trip(payload)`.
 Запросы по approval-поездкам: `respond_booking`. Кошелёк: `driver_wallet`, `request_payout`.
@@ -322,8 +349,8 @@ DOC = f"""# Boleia API: контракт для клиентов
 | --- | --- | --- |
 | `new_message` | обе стороны | чат `conversation_id` |
 | `review_request` | обе стороны | форма отзыва по `booking_id` |
-| `payment_pending`, `payment_failed`, `booking_accepted`, `booking_declined`, `booking_expired`, `booking_cancelled_by_driver`, `booking_no_show`, `refund_done`, `pin_ready`, `driver_unconfirmed`, `driver_arrived`, `trip_completed_ask` | пассажир | бронь `booking_id` |
-| `booking_requested`, `booking_confirmed`, `booking_cancelled_by_passenger`, `trip_reminder_6h`, `trip_reminder_2h` | водитель | своя поездка `trip_id` |
+| `payment_pending`, `payment_failed`, `booking_accepted`, `booking_declined`, `booking_expired`, `booking_cancelled_by_driver`, `booking_no_show`, `refund_done`, `pin_ready`, `driver_unconfirmed`, `trip_started_without_you`, `trip_finished` | пассажир | бронь `booking_id` |
+| `booking_requested`, `booking_confirmed`, `booking_cancelled_by_passenger`, `trip_reminder_6h`, `trip_reminder_2h`, `trip_start_reminder`, `trip_auto_closed` | водитель | своя поездка `trip_id` |
 | `trip_reminder_24h`, `trip_cancelled`, `dispute_opened`, `dispute_resolved` | обе стороны | `role = driver` - своя поездка `trip_id`; `role = passenger` - бронь `booking_id` |
 | `payout_released`, `payout_paid`, `payout_failed` | водитель | кошелёк |
 | `verification_approved`, `verification_rejected` | водитель | экран верификации |
@@ -364,6 +391,8 @@ DOC = f"""# Boleia API: контракт для клиентов
 | `price_hint` | `price_hint_kz`, `minutes` (null, если маршрута нет в `route_durations`) |
 | `upsert_profile` | строка `profiles` целиком |
 | `my_bookings.pin_code` | 4 цифры у пассажира брони с `departure_at - 2 ч`; иначе null (водителю всегда null) |
+| `start_trip` | `started_at`, `on_board`, `not_boarded`; при повторе `started_at`, `already: true` |
+| `finish_trip` | `finished_at`, `asked` (сколько пассажиров спросили); при повторе `finished_at`, `already: true` |
 
 **Значения `rule`** (правило возврата, ТЗ раздел 5): `driver_cancel` (водитель отменил, 100 %),
 `driver_decline` (водитель отклонил запрос, 100 %), `driver_unconfirmed` (водитель не подтвердил поездку
@@ -374,7 +403,8 @@ DOC = f"""# Boleia API: контракт для клиентов
 `PAYMENT_PHONE_MISMATCH` (оплата с чужого номера, деньги возвращаются), `payment_expired` (15 минут
 вышли), `trip_departed` (не оплачено к выезду), `trip_cancelled` (водитель отменил поездку, бронь была
 не оплачена), `no_response` (водитель не ответил, запрос истёк), `dispute_refund` (модератор вернул
-деньги), `driver_no_show` (водитель не приехал, автоотмена), `moderation` (поездка скрыта платформой).
+деньги), `trip_not_started` (водитель не начал поездку и не ввёл ни одного PIN за 24 ч после выезда, автоотмена с возвратом),
+`moderation` (поездка скрыта платформой). `driver_no_show` встречается только в бронях до миграции 0025.
 
 ## Enum'ы
 

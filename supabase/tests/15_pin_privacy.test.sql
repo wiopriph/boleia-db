@@ -50,7 +50,7 @@ select matches(pg_temp.ctx_text('pin'), '^\d{4}$', 'instant booking has a PIN af
 select ok(not has_column_privilege('authenticated', 'public.bookings', 'pin_code', 'select'), 'authenticated has no select on pin_code');
 select ok(not has_column_privilege('anon', 'public.bookings', 'pin_code', 'select'), 'anon has no select on pin_code');
 select is((select count(*) from information_schema.columns
-           where table_schema = 'public' and table_name = 'bookings' and column_name <> 'pin_code'
+           where table_schema = 'public' and table_name = 'bookings' and column_name not in ('pin_code', 'dispute_details')
              and not has_column_privilege('authenticated', 'public.bookings', column_name, 'select')),
   0::bigint, 'every other bookings column stays readable');
 

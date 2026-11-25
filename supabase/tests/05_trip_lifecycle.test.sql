@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(128);
+select plan(147);
 
 -- ---------------------------------------------------------------------------
 -- Контекст и хелперы: до смены роли. Cron'а ещё нет, переходы departed/awaiting_confirm
@@ -51,6 +51,17 @@ begin
   update public.bookings set status = 'awaiting_confirm' where trip_id = pg_temp.cu(trip_k) and status = 'accepted';
 end $$;
 
+-- поездка по новой схеме без участия ролей: PIN у перечисленных броней, старт и завершение
+create function pg_temp.ride(trip_k text, variadic booking_ks text[]) returns void language plpgsql as $$
+declare k text;
+begin
+  foreach k in array booking_ks loop
+    update public.bookings set pin_entered_at = now() where id = pg_temp.cu(k);
+  end loop;
+  perform public.start_trip_core(pg_temp.cu(trip_k), now(), false);
+  perform public.finish_trip_core(pg_temp.cu(trip_k), now(), false);
+end $$;
+
 insert into ctx values
   ('admin',  '11111111-1111-1111-1111-111111111111'),
   ('joao',   '22222222-2222-2222-2222-222222222222'),
@@ -82,7 +93,8 @@ insert into ctx values ('pin_a1', (select pin_code from public.bookings where id
 select pg_temp.as_user(pg_temp.cu('joao'));
 select throws_ok($$ select public.enter_pin(pg_temp.cu('a1'), pg_temp.c('pin_a1')) $$, 'P0001', 'BOLEIA_PIN_WINDOW_CLOSED', 'PIN before departure - 3h refused');
 select throws_ok($$ select public.enter_pin(pg_temp.cu('a1'), '12') $$, 'P0001', 'BOLEIA_PIN_INVALID', 'malformed PIN refused');
-select throws_ok($$ select public.mark_no_show(pg_temp.cu('a1')) $$, 'P0001', 'BOLEIA_BOOKING_CLOSED', 'no_show before departure refused');
+select throws_ok($$ select public.start_trip(pg_temp.cu('j7a')) $$, 'P0001', 'BOLEIA_START_TOO_EARLY', 'start long before departure refused');
+select throws_ok($$ select public.finish_trip(pg_temp.cu('j7a')) $$, 'P0001', 'BOLEIA_TRIP_NOT_STARTED', 'finish before start refused');
 select pg_temp.as_user(pg_temp.cu('ana'));
 select throws_ok($$ select public.confirm_trip(pg_temp.cu('a1'), true) $$, 'P0001', 'BOLEIA_BOOKING_CLOSED', 'confirm before departure refused');
 select throws_ok($$ select public.enter_pin(pg_temp.cu('a1'), pg_temp.c('pin_a1')) $$, 'P0001', 'BOLEIA_NOT_PARTICIPANT', 'passenger cannot enter PIN');
@@ -109,10 +121,19 @@ select ok((select pin_entered_at is not null from public.bookings where id = pg_
 select is((select count(*) from public.messages m join public.conversations c on c.id = m.conversation_id
            where c.booking_id = pg_temp.cu('a1') and m.body like 'Passageiro a bordo%'), 1::bigint, 'system message on boarding');
 
--- Teresa не пришла: у Ana есть PIN
+-- Teresa не пришла: старт после времени ожидания фиксирует, что её нет; через 24 ч тишины это неявка
+select pg_temp.as_user(pg_temp.cu('ana'));
+select throws_ok($$ select public.confirm_trip(pg_temp.cu('a1'), true) $$, 'P0001', 'BOLEIA_TRIP_NOT_FINISHED', 'confirm before the driver finishes refused');
+select throws_ok($$ select public.open_dispute(pg_temp.cu('a1'), 'other', 'ainda em viagem') $$, 'P0001', 'BOLEIA_TRIP_NOT_FINISHED', 'dispute before the driver finishes refused');
 select pg_temp.as_user(pg_temp.cu('joao'));
-select lives_ok($$ select public.mark_no_show(pg_temp.cu('t1')) $$, 'no_show with another PIN on trip');
+select is(public.start_trip(pg_temp.cu('j7a')) - 'started_at', '{"on_board": 1, "not_boarded": 1}'::jsonb, 'start records who boarded');
+select is(public.start_trip(pg_temp.cu('j7a')) ->> 'already', 'true', 'second start is a no-op');
 reset role;
+select ok((select not_boarded_at is not null from public.bookings where id = pg_temp.cu('t1')), 'Teresa marked as not boarded');
+select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('teresa') and type = 'trip_started_without_you'), 'Teresa told the trip left without her');
+select is((select status::text from public.bookings where id = pg_temp.cu('t1')), 'awaiting_confirm', 'not boarded is not final for 24h');
+select is(public.sch_autocomplete(now() + interval '23 hours'), 0, 'nothing closes before the 24h window ends');
+select is(public.sch_autocomplete(now() + interval '25 hours'), 1, 'silent not-boarded passenger closes as no_show');
 select is((select status::text from public.bookings where id = pg_temp.cu('t1')), 'no_show', 'booking no_show');
 select is(public.escrow_balance_kz(pg_temp.cu('t1')), 0, 'no_show: escrow released');
 select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('t1') and account = 'driver_balance'), 7000, 'driver gets price on no_show');
@@ -120,7 +141,15 @@ select is((select no_shows from public.profiles where id = pg_temp.cu('teresa'))
 select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('teresa') and type = 'booking_no_show'), 'passenger notified');
 select is((select status::text from public.trips where id = pg_temp.cu('j7a')), 'departed', 'trip still departed: Ana not final yet');
 
--- Ana доехала
+-- Ana доехала: водитель завершает, Ana одобряет
+select pg_temp.as_user(pg_temp.cu('joao'));
+select is(public.finish_trip(pg_temp.cu('j7a')) ->> 'asked', '1', 'finish asks the boarded passenger');
+select is(public.finish_trip(pg_temp.cu('j7a')) ->> 'already', 'true', 'second finish is a no-op');
+select throws_ok($$ select public.enter_pin(pg_temp.cu('a1'), pg_temp.c('pin_a1')) $$, 'P0001', 'BOLEIA_PIN_WINDOW_CLOSED', 'PIN entry closes when the trip is finished');
+reset role;
+select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('ana') and type = 'trip_finished'), 'Ana asked to rate or contest');
+select pg_temp.as_user(pg_temp.cu('ana'));
+select throws_ok($$ select public.confirm_trip(pg_temp.cu('a1'), false) $$, 'P0001', 'BOLEIA_DISPUTE_REASON_REQUIRED', 'a dispute needs a reason');
 select pg_temp.as_user(pg_temp.cu('teresa'));
 select throws_ok($$ select public.confirm_trip(pg_temp.cu('a1'), true) $$, 'P0001', 'BOLEIA_NOT_PARTICIPANT', 'stranger cannot confirm');
 select pg_temp.as_user(pg_temp.cu('ana'));
@@ -146,10 +175,16 @@ select pg_temp.book_paid('a2', 'jx1', 'ana', 1);
 insert into ctx values ('a2_amount', (select (price_total_kz + fee_kz)::text from public.bookings where id = pg_temp.cu('a2')));
 select pg_temp.depart('jx1', 2);
 select pg_temp.as_user(pg_temp.cu('joao'));
-select lives_ok($$ select public.mark_no_show(pg_temp.cu('a2')) $$, 'single passenger without PIN -> dispute');
+select is(public.start_trip(pg_temp.cu('jx1')) - 'started_at', '{"on_board": 0, "not_boarded": 1}'::jsonb, 'start with nobody on board');
 reset role;
-select is((select (status::text, driver_confirmed_at is not null) from public.bookings where id = pg_temp.cu('a2')), ('disputed'::text, true), 'disputed by driver');
-select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('ana') and type = 'dispute_opened'), 'passenger notified of dispute');
+select ok((select finished_at is not null from public.trips where id = pg_temp.cu('jx1')), 'nothing to finish when nobody boarded');
+select pg_temp.as_user(pg_temp.cu('ana'));
+select throws_ok($$ select public.open_dispute(pg_temp.cu('a2'), 'not_arrived', 'Estive no local') $$, 'P0001', 'BOLEIA_DISPUTE_REASON_INVALID', 'reason of the other branch refused');
+select throws_ok($$ select public.open_dispute(pg_temp.cu('a2'), 'was_there', 'ok') $$, 'P0001', 'BOLEIA_DISPUTE_DETAILS_REQUIRED', 'details required');
+select lives_ok($$ select public.open_dispute(pg_temp.cu('a2'), 'was_there', 'Estive no local às 8h, o condutor não apareceu') $$, 'passenger contests not boarded');
+reset role;
+select is((select (status::text, dispute_reason, passenger_confirmed_at is not null) from public.bookings where id = pg_temp.cu('a2')), ('disputed'::text, 'was_there'::text, true), 'disputed by passenger with a reason');
+select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('joao') and type = 'dispute_opened'), 'driver notified of dispute');
 
 select pg_temp.as_user(pg_temp.cu('ana'));
 select throws_ok($$ select public.resolve_dispute(pg_temp.cu('a2'), 'refund_full') $$, 'P0001', 'BOLEIA_NOT_ADMIN', 'non-admin cannot resolve');
@@ -176,11 +211,10 @@ select pg_temp.book_paid('t3', 'p7a', 'teresa', 1);
 insert into ctx values ('pin_t3', (select pin_code from public.bookings where id = pg_temp.cu('t3')));
 select pg_temp.depart('p7a', 3);
 select pg_temp.as_user(pg_temp.cu('pedro'));
-select throws_ok($$ select public.mark_no_show(pg_temp.cu('a3')) $$, 'P0001', 'BOLEIA_NO_SHOW_NEEDS_PIN', 'two passengers, no PIN: refused');
 select is(public.enter_pin(pg_temp.cu('t3'), pg_temp.c('pin_t3')) ->> 'ok', 'true', 'Teresa boards');
-select throws_ok($$ select public.mark_no_show(pg_temp.cu('t3')) $$, 'P0001', 'BOLEIA_NO_SHOW_NEEDS_PIN', 'boarded passenger cannot be no_show');
+select is(public.start_trip(pg_temp.cu('p7a')) ->> 'not_boarded', '1', 'Ana left behind at start');
 select pg_temp.as_user(pg_temp.cu('ana'));
-select lives_ok($$ select public.confirm_trip(pg_temp.cu('a3'), false) $$, 'passenger disputes');
+select lives_ok($$ select public.open_dispute(pg_temp.cu('a3'), 'driver_left_early', 'O condutor saiu antes da hora marcada') $$, 'passenger disputes');
 reset role;
 select is((select status::text from public.bookings where id = pg_temp.cu('a3')), 'disputed', 'disputed by passenger');
 select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('pedro') and type = 'dispute_opened'), 'driver notified');
@@ -196,6 +230,8 @@ select is((select amount_kz from public.ledger_entries where booking_id = pg_tem
 select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('a3') and account = 'driver_balance'), 4375, 'driver 5000 x 7000/8000');
 select is((select amount_kz from public.ledger_entries where booking_id = pg_temp.cu('a3') and account = 'platform_fee'), 625, 'platform 5000 x 1000/8000');
 select is((select trips_ridden from public.profiles where id = pg_temp.cu('ana')), 2, 'partial counts as ridden');
+select pg_temp.as_user(pg_temp.cu('pedro'));
+select lives_ok($$ select public.finish_trip(pg_temp.cu('p7a')) $$, 'Pedro finishes the trip');
 select pg_temp.as_user(pg_temp.cu('teresa'));
 select lives_ok($$ select public.confirm_trip(pg_temp.cu('t3'), true) $$, 'Teresa confirms');
 reset role;
@@ -204,16 +240,17 @@ select is((select trips_driven from public.profiles where id = pg_temp.cu('pedro
 select is((select balance_kz from public.profiles where id = pg_temp.cu('pedro')), 4375 + 7000, 'Pedro balance');
 
 -- ---------------------------------------------------------------------------
--- D. T4 (Pedro): окна после 48 ч / 24 ч; подтверждение всё ещё возможно
+-- D. T4 (Pedro): PIN принимается до завершения поездки, сколько бы ни прошло после выезда
 -- ---------------------------------------------------------------------------
 select pg_temp.book_paid('a4', 'p7b', 'ana', 1);
 insert into ctx values ('pin_a4', (select pin_code from public.bookings where id = pg_temp.cu('a4')));
 select pg_temp.depart('p7b', 49);
 select pg_temp.as_user(pg_temp.cu('pedro'));
-select throws_ok($$ select public.mark_no_show(pg_temp.cu('a4')) $$, 'P0001', 'BOLEIA_NO_SHOW_WINDOW_CLOSED', 'no_show after 48h refused');
-select throws_ok($$ select public.enter_pin(pg_temp.cu('a4'), pg_temp.c('pin_a4')) $$, 'P0001', 'BOLEIA_PIN_WINDOW_CLOSED', 'PIN after 24h refused');
+select is(public.enter_pin(pg_temp.cu('a4'), pg_temp.c('pin_a4')) ->> 'ok', 'true', 'PIN accepted while the trip is not finished');
+select lives_ok($$ select public.start_trip(pg_temp.cu('p7b')) $$, 'late start');
+select lives_ok($$ select public.finish_trip(pg_temp.cu('p7b')) $$, 'late finish');
 select pg_temp.as_user(pg_temp.cu('ana'));
-select lives_ok($$ select public.confirm_trip(pg_temp.cu('a4'), true) $$, 'late confirm still works');
+select lives_ok($$ select public.confirm_trip(pg_temp.cu('a4'), true) $$, 'confirm after finish');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -227,6 +264,7 @@ select is((public.cancel_booking(pg_temp.cu('a5'))) ->> 'held_kz', '4000', 'late
 reset role;
 select is(public.escrow_balance_kz(pg_temp.cu('a5')), 4000, 'hold in escrow');
 select pg_temp.depart('j7b', 1);
+select pg_temp.ride('j7b', 't5');
 select pg_temp.as_user(pg_temp.cu('teresa'));
 select lives_ok($$ select public.confirm_trip(pg_temp.cu('t5'), true) $$, 'Teresa confirms');
 reset role;

@@ -73,7 +73,9 @@ reset role;
 -- 3. reviews_public
 -- ---------------------------------------------------------------------------
 update public.trips set departure_at = now() - interval '2 hours', status = 'departed' where id = pg_temp.cu('j1');
-update public.bookings set status = 'awaiting_confirm' where id = pg_temp.cu('t1');
+update public.bookings set status = 'awaiting_confirm', pin_entered_at = now() where id = pg_temp.cu('t1');
+select public.start_trip_core(pg_temp.cu('j1'), now(), false);
+select public.finish_trip_core(pg_temp.cu('j1'), now(), false);
 select pg_temp.as_user(pg_temp.cu('teresa'));
 select lives_ok($$ select public.confirm_trip(pg_temp.cu('t1'), true) $$, 'completed');
 insert into ctx values ('rev', public.submit_review(pg_temp.cu('t1'), 5, array['pontual'], 'Top')::text);

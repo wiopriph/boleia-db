@@ -62,6 +62,26 @@ Flutter-приложение ходит в него через `supabase_flutter
 - **Уведомления.** Какой экран открывает уведомление и какие поля есть в его payload - таблица
   "Куда ведёт уведомление" в `docs/api.md`. Прочтение поштучно по нажатию плюс "прочитать все".
 
+## Ход поездки (миграция 0025)
+
+Как в такси. Экран брони и экран поездки строятся по `my_bookings.stage`, таблица этапов и действий -
+в `docs/api.md`, раздел "День поездки". Коротко:
+
+1. Водитель: `enter_pin(booking_id, pin)` по каждому пассажиру -> `start_trip(trip_id)` ->
+   `finish_trip(trip_id)`. Кнопка старта недоступна, пока есть бронь без PIN и не вышло время ожидания
+   (`START_TOO_EARLY`); без единого PIN она называется "Ninguém apareceu".
+2. Пассажир: называет PIN; на этапах `on_board` и `in_trip` только жалоба (`report_user` с
+   `booking_id`) и поддержка; на этапе `finished` - "Avaliar" (`confirm_trip(booking_id, true)`, затем
+   форма отзыва) или "Contestar" (`open_dispute(booking_id, reason, details)`), срок в `respond_until`;
+   на этапе `not_boarded` - только "Contestar".
+3. Деньги водителю: после оценки пассажира или через 24 ч без возражений. Показывать водителю по
+   каждой брони, когда они придут.
+
+Убрать из приложения: `driver_arrived` ("Cheguei"), `mark_no_show` ("Não apareceu"),
+`confirm_trip(.., false)` ("Não viajei"), экран по уведомлению `trip_completed_ask`. Этих функций и
+уведомлений больше нет. Новые уведомления: `trip_started_without_you`, `trip_finished`,
+`trip_start_reminder`, `trip_auto_closed`.
+
 ## Платёжный экран
 
 1. `rpc('request_booking', {trip_id, seats, message})` -> `{booking_id, payment_id, amount_kz, fee_kz, expires_at}`.

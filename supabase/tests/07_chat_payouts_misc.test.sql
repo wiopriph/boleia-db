@@ -172,7 +172,9 @@ reset role;
 -- 4. Отзывы
 -- ---------------------------------------------------------------------------
 update public.trips set departure_at = now() - interval '2 hours', status = 'departed', departed_at = now() - interval '2 hours' where id = pg_temp.cu('j2');
-update public.bookings set status = 'awaiting_confirm' where id = pg_temp.cu('t_j2');
+update public.bookings set status = 'awaiting_confirm', pin_entered_at = now() where id = pg_temp.cu('t_j2');
+select public.start_trip_core(pg_temp.cu('j2'), now(), false);
+select public.finish_trip_core(pg_temp.cu('j2'), now(), false);
 select pg_temp.as_user(pg_temp.cu('teresa'));
 select lives_ok($$ select public.confirm_trip(pg_temp.cu('t_j2'), true) $$, 'Teresa confirms trip');
 select throws_ok($$ select public.submit_review(pg_temp.cu('t_j2'), 6) $$, 'P0001', 'BOLEIA_RATING_INVALID', 'rating 6');

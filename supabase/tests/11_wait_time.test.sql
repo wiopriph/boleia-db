@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(33);
 
 create temp table ctx (k text primary key, v text);
 grant all on ctx to anon, authenticated;
@@ -60,7 +60,7 @@ select throws_ok($$ select public.update_trip(pg_temp.cu('np'), '{"wait_minutes"
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 2. my_bookings: wait_until, driver_arrived_at, passenger_no_shows
+-- 2. my_bookings: wait_until, passenger_no_shows (driver_arrived_at остаётся в view и всегда null)
 -- ---------------------------------------------------------------------------
 insert into ctx values ('np_until', (select (departure_at + interval '60 minutes')::text from public.trips where id = pg_temp.cu('np')));
 select pg_temp.as_user(pg_temp.cu('ana'));
@@ -71,47 +71,55 @@ select is((select passenger_no_shows from public.my_bookings where id = pg_temp.
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 3. driver_arrived: окно, уведомления, идемпотентность
+-- 3. start_trip: когда все с PIN, ждать не нужно; иначе не раньше конца ожидания
 -- ---------------------------------------------------------------------------
 select pg_temp.as_user(pg_temp.cu('pedro'));
-select throws_ok($$ select public.driver_arrived(pg_temp.cu('np')) $$, 'P0001', 'BOLEIA_ARRIVAL_WINDOW_CLOSED', 'too early: 30 days before');
+select throws_ok($$ select public.start_trip(pg_temp.cu('np')) $$, 'P0001', 'BOLEIA_START_TOO_EARLY', 'too early: 30 days before');
 select pg_temp.as_user(pg_temp.cu('ana'));
-select throws_ok($$ select public.driver_arrived(pg_temp.cu('np')) $$, 'P0001', 'BOLEIA_NOT_PARTICIPANT', 'passenger cannot mark arrival');
+select throws_ok($$ select public.start_trip(pg_temp.cu('np')) $$, 'P0001', 'BOLEIA_NOT_PARTICIPANT', 'passenger cannot start the trip');
 reset role;
 update public.trips set departure_at = now() + interval '1 hour' where id = pg_temp.cu('np');
 select pg_temp.as_user(pg_temp.cu('pedro'));
-select is(public.driver_arrived(pg_temp.cu('np')) ->> 'already', null, 'arrival marked');
-select is(public.driver_arrived(pg_temp.cu('np')) ->> 'already', 'true', 'second call is a no-op');
+select throws_ok($$ select public.start_trip(pg_temp.cu('np')) $$, 'P0001', 'BOLEIA_START_TOO_EARLY', 'a passenger is missing: wait until departure + 60 min');
 reset role;
-select ok((select driver_arrived_at is not null from public.trips where id = pg_temp.cu('np')), 'driver_arrived_at set');
-select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('ana') and type = 'driver_arrived' and (payload ->> 'wait_until')::timestamptz = (select departure_at + interval '60 minutes' from public.trips where id = pg_temp.cu('np'))),
-  'passenger told the driver is there and until when he waits');
-select is((select count(*) from public.notifications where user_id = pg_temp.cu('ana') and type = 'driver_arrived' and channel = 'sms'), 1::bigint, 'driver_arrived is urgent: sms, not delayed');
-select is((select count(*) from public.messages m join public.conversations c on c.id = m.conversation_id where c.booking_id = pg_temp.cu('a_np') and m.body like 'O condutor chegou%'), 1::bigint, 'system message in chat');
-update public.trips set departure_at = now() - interval '2 hours', status = 'departed', departed_at = now() - interval '2 hours', driver_arrived_at = null where id = pg_temp.cu('p1');
+update public.bookings set pin_entered_at = now() where id = pg_temp.cu('a_np');
 select pg_temp.as_user(pg_temp.cu('pedro'));
-select throws_ok($$ select public.driver_arrived(pg_temp.cu('p1')) $$, 'P0001', 'BOLEIA_ARRIVAL_WINDOW_CLOSED', 'too late: after departure + wait');
+select is(public.start_trip(pg_temp.cu('np')) - 'started_at', '{"on_board": 1, "not_boarded": 0}'::jsonb, 'everyone on board: start before the departure time');
+reset role;
+select is((select (status::text, started_at is not null, finished_at is null) from public.trips where id = pg_temp.cu('np')), ('departed'::text, true, true), 'early start departs the trip');
+select is((select status::text from public.bookings where id = pg_temp.cu('a_np')), 'awaiting_confirm', 'booking follows the trip');
+select is((select count(*) from public.messages m join public.conversations c on c.id = m.conversation_id where c.booking_id = pg_temp.cu('a_np') and m.body = 'Viagem iniciada.'), 1::bigint, 'system message in chat');
+select pg_temp.as_user(pg_temp.cu('ana'));
+select is((select stage from public.my_bookings where id = pg_temp.cu('a_np')), 'in_trip', 'passenger sees the in_trip stage');
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 4. mark_no_show не раньше конца ожидания
+-- 4. Опоздавший: старт только после ожидания, "не сел" снимается поздним PIN
 -- ---------------------------------------------------------------------------
 select pg_temp.book_paid('a_j1', 'j1', 'ana', 1);
 select pg_temp.book_paid('t_j1', 'j1', 'teresa', 1);
+insert into ctx values ('pin_t_j1', (select pin_code from public.bookings where id = pg_temp.cu('t_j1')));
 update public.trips set departure_at = now() - interval '10 minutes', status = 'departed', departed_at = now() - interval '10 minutes' where id = pg_temp.cu('j1');
 update public.bookings set status = 'awaiting_confirm' where trip_id = pg_temp.cu('j1') and status = 'accepted';
 update public.bookings set pin_entered_at = now() where id = pg_temp.cu('a_j1');  -- Ana села
 select pg_temp.as_user(pg_temp.cu('joao'));
-select throws_ok($$ select public.mark_no_show(pg_temp.cu('t_j1')) $$, 'P0001', 'BOLEIA_NO_SHOW_TOO_EARLY', '10 minutes after departure: still waiting (30)');
+select throws_ok($$ select public.start_trip(pg_temp.cu('j1')) $$, 'P0001', 'BOLEIA_START_TOO_EARLY', '10 minutes after departure: still waiting (30)');
 reset role;
 update public.trips set departure_at = now() - interval '31 minutes', departed_at = now() - interval '31 minutes' where id = pg_temp.cu('j1');
 select pg_temp.as_user(pg_temp.cu('joao'));
-select lives_ok($$ select public.mark_no_show(pg_temp.cu('t_j1')) $$, 'after the wait: no_show allowed');
+select is(public.start_trip(pg_temp.cu('j1')) ->> 'not_boarded', '1', 'after the wait: start leaves the latecomer behind');
 reset role;
-select is((select status::text from public.bookings where id = pg_temp.cu('t_j1')), 'no_show', 'latecomer marked no_show');
+select is((select count(*) from public.notifications where user_id = pg_temp.cu('teresa') and type = 'trip_started_without_you' and channel = 'sms'), 1::bigint,
+  'the latecomer is told at once: urgent, sms');
+select pg_temp.as_user(pg_temp.cu('teresa'));
+select is((select (stage, respond_until is not null) from public.my_bookings where id = pg_temp.cu('t_j1')), ('not_boarded'::text, true), 'latecomer sees the stage and the deadline');
+select pg_temp.as_user(pg_temp.cu('joao'));
+select is(public.enter_pin(pg_temp.cu('t_j1'), pg_temp.c('pin_t_j1')) ->> 'ok', 'true', 'the latecomer caught up: PIN after the start');
+reset role;
+select ok((select not_boarded_at is null and pin_entered_at is not null from public.bookings where id = pg_temp.cu('t_j1')), 'not boarded mark removed');
 
 -- ---------------------------------------------------------------------------
--- 5. pin_ready несёт wait_until; спор с отметкой "Cheguei" ждёт модератора
+-- 5. pin_ready несёт wait_until; напоминание о старте и страховка через 24 ч
 -- ---------------------------------------------------------------------------
 select pg_temp.book_paid('t_j2', 'j2', 'teresa', 1);
 update public.trips set departure_at = now() + interval '1 hour' where id = pg_temp.cu('j2');
@@ -120,12 +128,16 @@ select is((select (payload ->> 'wait_until')::timestamptz from public.notificati
   (select departure_at + interval '30 minutes' from public.trips where id = pg_temp.cu('j2')), 'pin_ready says until when the driver waits');
 
 select pg_temp.book_paid('a_p2', 'p2', 'ana', 1);
-update public.trips set departure_at = now() - interval '3 hours', status = 'departed', departed_at = now() - interval '3 hours', driver_arrived_at = now() - interval '3 hours' where id = pg_temp.cu('p2');
-update public.bookings set status = 'disputed', passenger_confirmed_at = now() - interval '2 hours' where id = pg_temp.cu('a_p2');
-select is((public.run_scheduler(now() + interval '2 days') ->> 'driver_no_show')::int, 0, 'driver who checked in is not auto-cancelled: moderator decides');
-select is((select status::text from public.trips where id = pg_temp.cu('p2')), 'departed', 'trip untouched');
-update public.trips set driver_arrived_at = null where id = pg_temp.cu('p2');
-select is((public.run_scheduler(now() + interval '2 days') ->> 'driver_no_show')::int, 1, 'without check-in the no-show cascade runs');
+update public.trips set departure_at = now() - interval '20 minutes', status = 'departed', departed_at = now() - interval '20 minutes' where id = pg_temp.cu('p2');
+update public.bookings set status = 'awaiting_confirm' where id = pg_temp.cu('a_p2');
+select is(public.sch_remind_start(now()), 0, 'no reminder while the driver still has to wait');
+update public.trips set departure_at = now() - interval '3 hours', departed_at = now() - interval '3 hours' where id = pg_temp.cu('p2');
+select is(public.sch_remind_start(now()), 1, 'reminder once the wait is over');
+select is(public.sch_remind_start(now()), 0, 'reminded only once');
+select ok(exists (select 1 from public.notifications where user_id = pg_temp.cu('pedro') and type = 'trip_start_reminder' and payload ->> 'trip_id' = pg_temp.c('p2')), 'driver reminded to start');
+select is(public.sch_auto_close(now() + interval '20 hours'), 0, 'not started: nothing closes before 24h after departure');
+select is(public.sch_auto_close(now() + interval '22 hours'), 1, 'no PIN and no start for 24h: cancelled');
+select is((select (status::text, cancel_reason, closed_by_system) from public.trips where id = pg_temp.cu('p2')), ('cancelled'::text, 'trip_not_started'::text, true), 'trip cancelled by the system');
 
 select is((select count(*) from (select op_id from public.ledger_entries group by op_id having sum(amount_kz) <> 0) x), 0::bigint, 'ledger balanced');
 

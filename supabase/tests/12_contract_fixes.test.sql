@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(30);
 
 create temp table ctx (name text primary key, value text);
 grant all on ctx to anon, authenticated;
@@ -111,6 +111,9 @@ reset role;
 -- 5. driver_wallet.earned_total_kz не растёт от неудачной выплаты
 -- ---------------------------------------------------------------------------
 select pg_temp.depart('joao_trip_1', 120);
+update public.bookings set pin_entered_at = now() where id = pg_temp.ctx_uuid('ana_on_joao');
+select public.start_trip_core(pg_temp.ctx_uuid('joao_trip_1'), now(), false);
+select public.finish_trip_core(pg_temp.ctx_uuid('joao_trip_1'), now(), false);
 select pg_temp.as_user(pg_temp.ctx_uuid('ana'));
 select lives_ok($$ select public.confirm_trip(pg_temp.ctx_uuid('ana_on_joao'), true) $$, 'Ana confirms');
 select pg_temp.as_user(pg_temp.ctx_uuid('joao'));
@@ -123,25 +126,31 @@ select is((select (balance_kz, earned_total_kz) from public.driver_wallet), (700
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 6. PIN отменённой брони не считается ни в mark_no_show, ни в cron
+-- 6. Бронь с введённым PIN не отменяется; поездка без PIN и без старта отменяется через 24 ч (0025)
 -- ---------------------------------------------------------------------------
-select pg_temp.book_paid('cancelled_with_pin', 'joao_trip_2', 'ana', 1);
-update public.bookings set pin_entered_at = now() where id = pg_temp.ctx_uuid('cancelled_with_pin');
+select pg_temp.book_paid('with_pin', 'joao_trip_2', 'ana', 1);
+update public.bookings set pin_entered_at = now() where id = pg_temp.ctx_uuid('with_pin');
 select pg_temp.as_user(pg_temp.ctx_uuid('ana'));
-select lives_ok($$ select public.cancel_booking(pg_temp.ctx_uuid('cancelled_with_pin')) $$, 'booking with an entered PIN is cancelled before departure');
-reset role;
-select pg_temp.book_paid('late_teresa', 'joao_trip_2', 'teresa', 1);
-select pg_temp.book_paid('late_admin', 'joao_trip_2', 'admin', 1);
-select pg_temp.depart('joao_trip_2', 61);
+select throws_ok($$ select public.cancel_booking(pg_temp.ctx_uuid('with_pin')) $$, 'P0001', 'BOLEIA_TOO_LATE_TO_CANCEL',
+  'a boarded passenger cannot cancel');
+select throws_ok($$ select public.cancel_quote(pg_temp.ctx_uuid('with_pin')) $$, 'P0001', 'BOLEIA_TOO_LATE_TO_CANCEL',
+  'no refund quote after the PIN');
 select pg_temp.as_user(pg_temp.ctx_uuid('joao'));
-select throws_ok($$ select public.mark_no_show(pg_temp.ctx_uuid('late_teresa')) $$, 'P0001', 'BOLEIA_NO_SHOW_NEEDS_PIN',
-  'the PIN of a cancelled booking does not prove anyone boarded');
-select pg_temp.as_user(pg_temp.ctx_uuid('teresa'));
-select lives_ok($$ select public.confirm_trip(pg_temp.ctx_uuid('late_teresa'), false) $$, 'passenger disputes');
+select throws_ok($$ select public.cancel_trip(pg_temp.ctx_uuid('joao_trip_2')) $$, 'P0001', 'BOLEIA_TOO_LATE_TO_CANCEL',
+  'the driver cannot cancel a trip with a passenger on board');
 reset role;
-update public.bookings set passenger_confirmed_at = now() - interval '25 hours' where id = pg_temp.ctx_uuid('late_teresa');
-select is(public.sch_driver_no_show(now()), 1, 'cron driver-no-show is not blocked by the cancelled PIN');
-select is((select (status::text, cancel_reason) from public.trips where id = pg_temp.ctx_uuid('joao_trip_2')), ('cancelled'::text, 'driver_no_show'::text), 'trip auto-cancelled');
+update public.bookings set pin_entered_at = null where id = pg_temp.ctx_uuid('with_pin');
+select pg_temp.book_paid('late_teresa', 'joao_trip_2', 'teresa', 1);
+insert into ctx values ('joao_cancels', (select cancels_total::text from public.profiles where id = pg_temp.ctx_uuid('joao')));
+select pg_temp.depart('joao_trip_2', 23 * 60);
+select is(public.sch_auto_close(now()), 0, 'no PIN, no start: nothing happens before 24h');
+select pg_temp.depart('joao_trip_2', 24 * 60 + 1);
+select is(public.sch_auto_close(now()), 1, 'no PIN, no start for 24h: the trip is cancelled');
+select is((select (status::text, cancel_reason) from public.trips where id = pg_temp.ctx_uuid('joao_trip_2')), ('cancelled'::text, 'trip_not_started'::text), 'trip auto-cancelled');
+select is((select (status::text, cancel_reason, refund_kz) from public.bookings where id = pg_temp.ctx_uuid('late_teresa')),
+  ('cancelled'::text, 'trip_not_started'::text, 8000), 'passenger refunded in full');
+select is((select cancels_total from public.profiles where id = pg_temp.ctx_uuid('joao')), (pg_temp.ctx_text('joao_cancels')::integer + 1)::smallint,
+  'a trip that never started counts as a driver cancellation');
 
 select is((select count(*) from (select op_id from public.ledger_entries group by op_id having sum(amount_kz) <> 0) unbalanced), 0::bigint, 'ledger balanced');
 
